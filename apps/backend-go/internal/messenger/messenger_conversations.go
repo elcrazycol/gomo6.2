@@ -65,17 +65,63 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 
 	rows, err := h.dbFor(c).Query(`
 		SELECT
-			c.id, c.last_message_at, c.last_message_preview,
-			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
-			cm.unread_count, cm.is_muted,
+			c.id, c.last_message_at,
+			-- A block held by the peer erases their side of the chat for this
+			-- viewer: no preview, no avatar, no presence, no pin/read line and
+			-- no unread badge. The blocker keeps seeing the blocked user exactly
+			-- as before (only blocked_by_me flips the composer to the unblock
+			-- panel). Groups are never affected.
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN NULL ELSE c.last_message_preview END AS last_message_preview,
+			c.last_message_sender_id,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN NULL ELSE c.pinned_message_id END AS pinned_message_id,
+			c.updated_at,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN 0 ELSE cm.unread_count END AS unread_count,
+			cm.is_muted,
+			-- The blocker sees blocked_by_me (composer → unblock panel). The
+			-- blocked side gets no flag at all.
+			(CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = $1 AND b.blocked_id = cm2.user_id
+			) THEN true ELSE false END) AS blocked_by_me,
+			-- presence_hidden is true only for the blocked viewer: their peer's
+			-- online state is hidden (server-side) and the client must ignore
+			-- live presence deltas for this chat.
+			(CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN true ELSE false END) AS presence_hidden,
 			c.is_group, c.group_name, c.group_avatar_url, c.is_notes,
+			COALESCE(c.encryption_mode, 'server') AS encryption_mode,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
 			ou.nickname_emoji_id AS other_nickname_emoji_id,
-			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
-			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at,
-			cm2.last_read_at AS other_last_read_at,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN NULL ELSE ou.avatar_url END AS other_avatar_url,
+			ou.account_number AS other_account_number,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN false ELSE ou.is_online END AS other_is_online,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN (now() - interval '30 days') ELSE ou.last_seen_at END AS other_last_seen_at,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $1
+			) THEN NULL ELSE cm2.last_read_at END AS other_last_read_at,
 			-- MY read line: where the unread messages begin. The client needs it
 			-- to place the "Unread messages" marker and to open a chat there
 			-- instead of at the newest message (Telegram does the same).
@@ -102,12 +148,16 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		var otherLastReadAt, myLastReadAt sql.NullString
 		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
 		var groupName, groupAvatar sql.NullString
+		var encryptionMode sql.NullString
 
 		if err := rows.Scan(
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.IsMuted,
+			&conv.BlockedByMe,
+			&conv.PresenceHidden,
 			&conv.IsGroup, &groupName, &groupAvatar, &conv.IsNotes,
+			&encryptionMode,
 			&conv.MemberCount,
 			&otherID, &otherUsername, &otherDisplayName, &otherNicknameEmojiID,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
@@ -120,10 +170,16 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		if lastMsgAt.Valid {
 			conv.LastMessageAt = &lastMsgAt.String
 		}
+		if encryptionMode.Valid && encryptionMode.String != "" {
+			conv.EncryptionMode = encryptionMode.String
+		} else {
+			conv.EncryptionMode = encryptionModeServer
+		}
+		isOpaquePreview := conv.IsNotes || conv.EncryptionMode == encryptionModeE2E
 		if preview.Valid {
-			if conv.IsNotes {
-				// Notes previews are client-side E2E ciphertext: pass the blob
-				// through verbatim so the owning device can decrypt it locally.
+			if isOpaquePreview {
+				// Opaque client ciphertext: pass the blob through verbatim so
+				// the owning device can decrypt it locally.
 				conv.LastMessagePreview = &preview.String
 			} else {
 				// Try per-conversation key first, fall back to master key. If decryption
@@ -257,6 +313,18 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
+	// 1:1 write policy: blocks and a friends-only inbox are enforced before a
+	// conversation row exists, so a blocked user cannot even create the chat.
+	allowed, reason, gateErr := h.canSendDirect(c, claims.UserID, req.UserID)
+	if gateErr != nil {
+		httpx.ServerError(c, "check direct message policy", gateErr)
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, models.ErrorResponse(reason))
+		return
+	}
+
 	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
 	convID, err := h.FindOrCreateConversation(c, claims.UserID, req.UserID)
 	if err != nil {
@@ -299,21 +367,6 @@ func (h *MessengerHandler) GetOrCreateNotesConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID, "is_notes": true}))
 }
 
-// isNotesConversation reports whether the conversation is the personal notes
-// self-chat (client-side E2E encrypted content). A nonexistent conversation is
-// treated as a regular one — the caller's membership check rejects it next.
-func (h *MessengerHandler) isNotesConversation(c *gin.Context, conversationID string) (bool, error) {
-	var notes bool
-	err := h.dbFor(c).QueryRow(
-		"SELECT COALESCE(is_notes, false) FROM chat_conversations WHERE id = $1",
-		conversationID,
-	).Scan(&notes)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	return notes, err
-}
-
 // LeaveConversation removes the user from a conversation.
 // DELETE /api/v1/messenger/conversations/:id/leave
 //
@@ -342,24 +395,18 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 
 	// The personal notes chat cannot be left: it is the user's own encrypted
 	// storage, and leaving would orphan the stored ciphertext.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
+	access, accessOK := h.loadAccess(c, conversationID, claims.UserID)
+	if !accessOK || access == nil {
 		return
 	}
-	if isNotes {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes conversation cannot be left"))
-		return
-	}
-
-	// Check membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
-		return
-	}
-	if !member {
+	// Membership is answered first so a non-member cannot probe the kind of a
+	// conversation by the shape of the error.
+	if !access.IsMember {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+		return
+	}
+	if access.IsNotes {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes conversation cannot be left"))
 		return
 	}
 
@@ -390,12 +437,16 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "member_left",
-				Payload: map[string]interface{}{
-					"conversation_id": conversationID,
-					"user_id":         claims.UserID,
-				},
+				Type:    "member_left",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
@@ -691,12 +742,16 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": groupID,
+				"event":           "group_updated",
+			}
+			if memberIDs := h.listConversationMemberIDs(groupID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "group_updated",
-				Payload: map[string]interface{}{
-					"conversation_id": groupID,
-					"event":           "group_updated",
-				},
+				Type:    "group_updated",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}

@@ -1219,6 +1219,55 @@ func TestHandleRedisEvent_DeleteWallPost(t *testing.T) {
 	}
 }
 
+func TestHandleRedisEvent_NewChatMessage_RoutesToUserRoomWithDedup(t *testing.T) {
+	hub := NewHub(nil, nil)
+	// Alice is only subscribed to her personal messenger_user_u1 stream (no chat_conv-abc room).
+	alice := newTestClient(hub, "u1", "Alice")
+	hub.SubscribeToRoom(alice, "messenger_user_u1")
+	// Bob is subscribed to both his personal stream AND the chat_conv-abc room.
+	bob := newTestClient(hub, "u2", "Bob")
+	hub.SubscribeToRoom(bob, "messenger_user_u2")
+	hub.SubscribeToRoom(bob, "chat_conv-abc")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewChatMessage,
+		Payload: map[string]interface{}{
+			"id":              "msg-1",
+			"conversation_id": "conv-abc",
+			"recipient_ids":   []interface{}{"u1", "u2"},
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-alice.Send:
+		if !containsStr(string(msg), "new_chat_message") {
+			t.Errorf("expected 'new_chat_message', got: %s", string(msg))
+		}
+		if containsStr(string(msg), "recipient_ids") {
+			t.Errorf("recipient_ids must be stripped before client delivery, got: %s", string(msg))
+		}
+	default:
+		t.Error("Alice in messenger_user_u1 should receive NewChatMessage without subscribing to chat_conv-abc")
+	}
+
+	select {
+	case <-bob.Send:
+		// First delivery expected
+	default:
+		t.Error("Bob should receive NewChatMessage")
+	}
+
+	select {
+	case dup := <-bob.Send:
+		t.Errorf("Bob must NOT receive duplicate delivery when subscribed to both rooms, got: %s", string(dup))
+	default:
+		// expected: deduplicated
+	}
+}
+
 func TestHandleRedisEvent_NewChatMessage(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client := newTestClient(hub, "user-1", "Alice")

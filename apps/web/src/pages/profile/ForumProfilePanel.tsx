@@ -26,6 +26,9 @@ export interface ForumProfilePanelProps {
   onOpenMessages: () => void;
   /** isEditing ? save-and-exit : start editing (own profile). */
   onEditClick: () => void;
+  /** The viewer blocked this profile — the menu offers «Разблокировать». */
+  blockedByMe?: boolean;
+  onToggleBlock?: () => void;
   /** The avatar cover — named by the page for the avatar → gallery morph. */
   avatarRef?: (el: HTMLElement | null) => void;
 }
@@ -46,6 +49,8 @@ export function ForumProfilePanel({
   onAvatarClick,
   onOpenMessages,
   onEditClick,
+  blockedByMe = false,
+  onToggleBlock,
   avatarRef,
 }: ForumProfilePanelProps) {
   const { t } = useTranslation();
@@ -116,6 +121,8 @@ export function ForumProfilePanel({
                   reportTargetLabel="на пользователя"
                   triggerTitle="Действия"
                   triggerClassName="h-9 w-9 rounded-lg border border-border/60 bg-background/60"
+                  blockedByMe={blockedByMe}
+                  onToggleBlock={onToggleBlock}
                 />
               </div>
             )}

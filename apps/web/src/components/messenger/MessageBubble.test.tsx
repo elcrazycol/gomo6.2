@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StrictMode } from "react";
 import type { ReactElement } from "react";
@@ -315,13 +315,15 @@ describe("MessageBubble", () => {
   });
 
   it("renders sent time from sent_at", () => {
-    render(
+    const { container } = render(
       <MessageBubble
         message={createMessage({ sent_at: "2025-06-01T14:30:00Z" })}
         {...defaultProps}
       />,
     );
-    expect(screen.getByText(/\d{2}:\d{2}/)).toBeInTheDocument();
+    // The pill is rendered twice (visible + invisible inline twin), so query
+    // the visible one explicitly instead of by text alone.
+    expect(container.querySelector(".message-meta")?.textContent).toMatch(/\d{2}:\d{2}/);
   });
 
   it("shows the outbox clock while a message is sending", () => {
@@ -402,15 +404,16 @@ describe("MessageBubble", () => {
     expect(row?.className).toContain("is-consecutive");
   });
 
-  it("renders deleted message UI", () => {
+  it("renders nothing for a deleted message (no «Сообщение удалено» plate)", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({ is_deleted: true, content: "" })}
         {...defaultProps}
       />,
     );
-    expect(container.querySelector(".deleted-bubble")).toBeInTheDocument();
-    expect(screen.getByText("Сообщение удалено")).toBeInTheDocument();
+    expect(container.querySelector(".bubble-row")).not.toBeInTheDocument();
+    expect(container.querySelector(".deleted-bubble")).not.toBeInTheDocument();
+    expect(screen.queryByText("Сообщение удалено")).not.toBeInTheDocument();
   });
 
   it("renders media messages with a separate caption section and source aspect ratio", () => {
@@ -444,6 +447,55 @@ describe("MessageBubble", () => {
     expect(caption?.previousElementSibling).toBe(container.querySelector(".msg-attachments"));
   });
 
+  it("renders a photo with no text at all as a media bubble (never a zero-size row)", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "",
+          attachments: [{
+            id: "att-1",
+            url: "user-1/messenger/photo.jpg",
+            type: "image",
+            name: "photo.jpg",
+            size: 1200,
+            mime: "image/jpeg",
+            meta: JSON.stringify({ width: 1200, height: 800 }),
+          }],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.is-media-bubble.has-caption")).not.toBeInTheDocument();
+    const media = container.querySelector(".msg-attachment-image") as HTMLElement;
+    expect(media).toBeInTheDocument();
+    // Pixel width + max-width: the box can hug the photo without collapsing.
+    expect(media.style.width).toBe("640px");
+    expect(media.style.maxWidth).toBe("100%");
+  });
+
+  it("marks multi-photo messages as albums and keeps photo+link captions inside the media bubble", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "смотри https://gomo6.local",
+          attachments: [
+            { id: "a1", url: "u/1.jpg", type: "image", name: "1.jpg", size: 1, mime: "image/jpeg" },
+            { id: "a2", url: "u/2.jpg", type: "image", name: "2.jpg", size: 1, mime: "image/jpeg" },
+          ],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble.is-media-album")).toBeInTheDocument();
+    expect(container.querySelector(".message-media-caption")).toHaveTextContent("смотри");
+    expect(container.querySelector(".msg-media-mosaic")).toBeInTheDocument();
+  });
+
   it("uses the remembered aspect ratio for legacy photos without metadata", () => {
     rememberAttachmentAspectRatio("user-1/messenger/legacy.jpg", 9 / 16);
     const { container } = render(
@@ -468,130 +520,76 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 0.5625");
   });
 
-  it("keeps timestamp and status inline for a one-line reply", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const rectList = {
-      0: rect,
-      length: 1,
-      item: (index: number) => index === 0 ? rect : null,
-    } as unknown as DOMRectList;
-
-    Object.defineProperty(rangePrototype, "getClientRects", {
+  it("places the timestamp without reading layout back from the DOM", () => {
+    // The old implementation forced a synchronous reflow per bubble
+    // (offsetWidth + Range.getClientRects + ResizeObserver). Any regression
+    // would immediately show up here as a call.
+    const rangeSpy = vi.spyOn(document, "createRange");
+    const offsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    const offsetWidthSpy = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
       configurable: true,
-      value: () => rectList,
+      get: offsetWidthSpy,
     });
 
     try {
-      const quoted = createMessage({ id: "quoted-1", content: "original" });
       const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "ответ" })}
-          {...defaultProps}
-          isMine={true}
-          quotedMessage={quoted}
-        />,
+        <MessageBubble message={createMessage({ content: "ответ" })} {...defaultProps} isMine={true} />,
       );
 
-      const bubble = container.querySelector(".message-bubble");
-      expect(bubble).toHaveClass("is-compact");
+      expect(rangeSpy).not.toHaveBeenCalled();
+      expect(offsetWidthSpy).not.toHaveBeenCalled();
       expect(container.querySelector(".message-meta")).toBeInTheDocument();
     } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
+      rangeSpy.mockRestore();
+      if (offsetWidthDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidthDescriptor);
       }
     }
   });
 
-  it("keeps the time/status pill clear of a single-line emoji message", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const rectList = {
-      0: rect,
-      length: 1,
-      item: (index: number) => index === 0 ? rect : null,
-    } as unknown as DOMRectList;
+  it("reserves the pill's exact width with an invisible inline twin", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({ content: "ответ", is_edited: true })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
 
-    Object.defineProperty(rangePrototype, "getClientRects", {
-      configurable: true,
-      value: () => rectList,
-    });
-
-    try {
-      const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "[e:emoji1]" })}
-          {...defaultProps}
-          isMine={true}
-        />,
-      );
-
-      const bubble = container.querySelector(".message-bubble");
-      // Emoji-only messages render through the rich-text stack, not the plain
-      // <p>; the compact measurement must apply to it too.
-      expect(container.querySelector(".message-content-stack")).toBeInTheDocument();
-      expect(bubble).toHaveClass("is-compact");
-    } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
-      }
-    }
+    const reserve = container.querySelector(".message-content-text .message-meta-reserve");
+    const meta = container.querySelector(".message-meta");
+    expect(reserve).toBeInTheDocument();
+    expect(meta).toBeInTheDocument();
+    // Same children → same width in the line box. It must be *invisible*, not
+    // removed: visibility:hidden still participates in layout.
+    expect(reserve?.textContent).toBe(meta?.textContent);
+    expect(reserve).toHaveAttribute("aria-hidden", "true");
+    expect(reserve?.textContent).toContain("изм.");
   });
 
-  it("keeps bottom space for a multiline reply", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const firstRect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const secondRect = { top: 28, width: 70, height: 14 } as DOMRect;
-    const rects = [firstRect, secondRect];
-    const rectList = {
-      0: firstRect,
-      1: secondRect,
-      length: rects.length,
-      item: (index: number) => rects[index] ?? null,
-    } as unknown as DOMRectList;
+  it("puts the inline twin inside the rich-text stack for emoji messages", () => {
+    const { container } = render(
+      <MessageBubble message={createMessage({ content: "[e:emoji1]" })} {...defaultProps} isMine={true} />,
+    );
 
-    Object.defineProperty(rangePrototype, "getClientRects", {
-      configurable: true,
-      value: () => rectList,
-    });
+    expect(container.querySelector(".message-content-stack .message-meta-reserve")).toBeInTheDocument();
+  });
 
-    try {
-      const quoted = createMessage({ id: "quoted-1", content: "original" });
-      const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "длинный ответ" })}
-          {...defaultProps}
-          isMine={true}
-          quotedMessage={quoted}
-        />,
-      );
+  it("does not reserve inline space for media or failed bubbles", () => {
+    const cases: MessageView[] = [
+      createMessage({
+        content: "",
+        attachments: [{ url: "user-1/messenger/photo.jpg", type: "image", name: "photo.jpg", size: 10, mime: "image/jpeg" }],
+      }),
+      createMessage({ localStatus: "failed" }),
+    ];
 
-      const bubble = container.querySelector(".message-bubble");
-      expect(bubble).toHaveClass("is-multiline");
-      expect(bubble).not.toHaveClass("is-compact");
+    for (const message of cases) {
+      const { container, unmount } = render(<MessageBubble message={message} {...defaultProps} isMine={true} />);
+      expect(container.querySelector(".message-meta-reserve")).not.toBeInTheDocument();
       expect(container.querySelector(".message-meta")).toBeInTheDocument();
-    } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
-      }
+      unmount();
     }
   });
 
@@ -620,14 +618,14 @@ describe("MessageBubble", () => {
   });
 
   it("renders edited label for edited messages", () => {
-    render(
+    const { container } = render(
       <MessageBubble
         message={createMessage({ is_edited: true })}
         {...defaultProps}
         isMine={true}
       />,
     );
-    expect(screen.getByText("изм.")).toBeInTheDocument();
+    expect(container.querySelector(".message-meta")?.textContent).toContain("изм.");
   });
 
   it("renders pinned indicator when isPinned", () => {
@@ -641,18 +639,31 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".is-pinned")).toBeInTheDocument();
   });
 
-  it("renders failed state with retry button", () => {
+  it("marks a failed send with a small ! that opens retry / delete", () => {
     const onRetry = vi.fn();
-    render(
+    const onDelete = vi.fn();
+    const { container } = render(
       <MessageBubble
         message={createMessage({ localStatus: "failed" })}
         {...defaultProps}
         isMine={true}
         onRetry={onRetry}
+        onDelete={onDelete}
       />,
     );
-    expect(screen.getByText("Не отправлено")).toBeInTheDocument();
-    expect(screen.getByText("Повторить")).toBeInTheDocument();
+
+    // No in-bubble error header: the failure is one quiet badge.
+    expect(container.querySelector(".message-error-header")).not.toBeInTheDocument();
+    const dot = screen.getByRole("button", { name: "Сообщение не отправлено" });
+    expect(dot).toHaveTextContent("!");
+
+    fireEvent.click(dot);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Повторить/ }));
+    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ localStatus: "failed" }));
+
+    fireEvent.click(dot);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Удалить/ }));
+    expect(onDelete).toHaveBeenCalledWith("msg-1");
   });
 
   it("renders quoted message when provided", () => {
@@ -734,6 +745,110 @@ describe("MessageBubble", () => {
     await screen.findByText("Ответить");
     expect(screen.queryByText("Редактировать")).not.toBeInTheDocument();
     expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
+  });
+
+  it("plays the delete exit when the message is leaving", () => {
+    const { container } = render(
+      <div className="message-scroll">
+        <div className="message-list">
+          <div className="message-item message-row">
+            <MessageBubble
+              message={createMessage({ deleting: true })}
+              {...defaultProps}
+            />
+          </div>
+        </div>
+      </div>,
+    );
+    // The row is flagged (no hover/menu) and the exit owns it until the store
+    // removes it — the bubble never shows a tombstone in the meantime.
+    expect(container.querySelector(".bubble-row")?.className).toContain("is-deleting");
+    const row = container.querySelector<HTMLElement>(".message-item")!;
+    expect(row.dataset.exit).toBe("1");
+    expect(row.style.pointerEvents).toBe("none");
+    expect(screen.queryByText("Сообщение удалено")).not.toBeInTheDocument();
+  });
+
+  it("glides the panel down when an action is chosen, then asks", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+
+    // Not a hard cut: the panel is still mounted, flagged as leaving, and the
+    // floated group is landing back on the message.
+    const leaving = document.querySelector(".msg-action-panel.is-closing");
+    expect(leaving).not.toBeNull();
+    expect(document.querySelector(".msg-action-lift.is-closing")).not.toBeNull();
+    expect(screen.queryByText("Вы хотите удалить это сообщение?")).not.toBeInTheDocument();
+
+    // The question appears once the panel is gone.
+    expect(await screen.findByText("Вы хотите удалить это сообщение?", undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(document.querySelector(".msg-action-panel")).toBeNull();
+  });
+
+  it("asks before deleting: the panel opens a compact confirmation", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+
+    // One line and two buttons: no icon, no essay.
+    expect(await screen.findByText("Вы хотите удалить это сообщение?")).toBeInTheDocument();
+    expect(screen.queryByText(/исчезнет у вас и у собеседника/i)).not.toBeInTheDocument();
+    // Nothing is deleted until the reader confirms.
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the confirmation keeps the message", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+    fireEvent.click(await screen.findByRole("button", { name: "Отмена" }));
+
+    await waitFor(() => expect(screen.queryByText("Вы хотите удалить это сообщение?")).not.toBeInTheDocument());
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("confirming deletes the message", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+    // The panel's item is a menuitem; the dialog's action is the only button
+    // named «Удалить» at this point.
+    fireEvent.click(await screen.findByRole("button", { name: "Удалить" }));
+
+    expect(onDelete).toHaveBeenCalledWith("msg-1");
   });
 
   // A chat-panel harness so the scrim/host classes and dismissal wiring can be

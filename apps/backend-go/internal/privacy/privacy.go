@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/lib/pq"
 )
 
 // Settings holds the private profile fields from privacy_settings table.
@@ -131,6 +132,49 @@ func ShouldFilterPrivateProfile(db *sql.DB, viewerID, targetID string) (bool, *S
 	return true, ps, nil
 }
 
+// BlockedBy reports whether targetID has blocked viewerID. It is the single Go
+// form of "this account erased itself for me": every read path that exposes the
+// target's profile, presence or content must consult it (or the batched
+// ResolveProfileVisibilityBatch, which answers it for many targets at once).
+// A viewer is never blocked "by themselves", and guests cannot be blocked.
+func BlockedBy(db *sql.DB, targetID, viewerID string) (bool, error) {
+	if db == nil || targetID == "" || viewerID == "" || targetID == viewerID {
+		return false, nil
+	}
+	var blocked bool
+	err := db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2)`,
+		targetID, viewerID,
+	).Scan(&blocked)
+	return blocked, err
+}
+
+// HiddenPresenceIDs returns the subset of targetIDs whose presence (online
+// state / last seen) must be hidden from viewerID: the targets that blocked the
+// viewer. One query for the whole list.
+func HiddenPresenceIDs(db *sql.DB, viewerID string, targetIDs []string) (map[string]bool, error) {
+	hidden := make(map[string]bool, len(targetIDs))
+	if db == nil || viewerID == "" || len(targetIDs) == 0 {
+		return hidden, nil
+	}
+	rows, err := db.Query(
+		`SELECT blocker_id::text FROM user_blocks WHERE blocked_id = $1 AND blocker_id = ANY($2::uuid[])`,
+		viewerID, pq.Array(targetIDs),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		hidden[id] = true
+	}
+	return hidden, rows.Err()
+}
+
 // CanViewWall reports whether viewerID may view the wall of ownerID: the owner
 // themself, owners of non-private profiles who have not hidden their wall
 // (private_hide_wall), or mutual friends. This is the single Go form of the
@@ -146,8 +190,17 @@ func CanViewWall(db *sql.DB, viewerID, ownerID string) (bool, error) {
 	if viewerID != "" && viewerID == ownerID {
 		return true, nil
 	}
+	// A block held by the wall owner erases the wall for the blocked viewer
+	// before any privacy setting is even consulted.
+	blocked, err := BlockedBy(db, ownerID, viewerID)
+	if err != nil {
+		return false, err
+	}
+	if blocked {
+		return false, nil
+	}
 	var private, hideWall bool
-	err := db.QueryRow(`SELECT `+wallSettingsColumns+` FROM privacy_settings WHERE user_id = $1`, ownerID).Scan(&private, &hideWall)
+	err = db.QueryRow(`SELECT `+wallSettingsColumns+` FROM privacy_settings WHERE user_id = $1`, ownerID).Scan(&private, &hideWall)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// No privacy settings row means the profile is public and the wall
@@ -177,7 +230,8 @@ func CanViewWall(db *sql.DB, viewerID, ownerID string) (bool, error) {
 func WallVisibilityClause(ownerColumn, privacyAlias, viewerArg string) string {
 	return "(" + ownerColumn + " = " + viewerArg +
 		" OR (COALESCE(" + privacyAlias + "." + wallPrivateProfileCol + ", false) = false AND COALESCE(" + privacyAlias + "." + wallPrivateHideWallCol + ", false) = false)" +
-		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = " + ownerColumn + " AND f.user2_id = " + viewerArg + ") OR (f.user1_id = " + viewerArg + " AND f.user2_id = " + ownerColumn + ")))"
+		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = " + ownerColumn + " AND f.user2_id = " + viewerArg + ") OR (f.user1_id = " + viewerArg + " AND f.user2_id = " + ownerColumn + ")))" +
+		" AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = " + ownerColumn + " AND b.blocked_id = " + viewerArg + ")"
 }
 
 // WallAttachmentAccess reports whether viewerID may fetch a wall media object
@@ -276,6 +330,15 @@ SELECT EXISTS(
 // CanViewUserContent returns true if the viewer can see the target user's content.
 // Returns true if: profile is not private, viewer is empty/owner, or viewer is mutual friend.
 func CanViewUserContent(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	if viewerID != "" && viewerID != targetUserID {
+		blocked, err := BlockedBy(db, targetUserID, viewerID)
+		if err != nil {
+			return false, err
+		}
+		if blocked {
+			return false, nil
+		}
+	}
 	shouldFilter, _, err := ShouldFilterPrivateProfile(db, viewerID, targetUserID)
 	if err != nil {
 		return false, err
@@ -287,6 +350,15 @@ func CanViewUserContent(db *sql.DB, viewerID, targetUserID string) (bool, error)
 // private_hide_achievements setting. A visible profile does not implicitly
 // make the user's achievement history public.
 func CanViewUserAchievements(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	if viewerID != "" && viewerID != targetUserID {
+		blocked, err := BlockedBy(db, targetUserID, viewerID)
+		if err != nil {
+			return false, err
+		}
+		if blocked {
+			return false, nil
+		}
+	}
 	settings, err := GetSettings(db, targetUserID)
 	if err != nil {
 		return false, err
@@ -310,6 +382,15 @@ func CanViewUserAchievements(db *sql.DB, viewerID, targetUserID string) (bool, e
 // private_hide_gifts setting, mirroring CanViewUserAchievements. A public
 // profile that hides gifts must still keep them from non-friends.
 func CanViewUserGifts(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	if viewerID != "" && viewerID != targetUserID {
+		blocked, err := BlockedBy(db, targetUserID, viewerID)
+		if err != nil {
+			return false, err
+		}
+		if blocked {
+			return false, nil
+		}
+	}
 	settings, err := GetSettings(db, targetUserID)
 	if err != nil {
 		return false, err

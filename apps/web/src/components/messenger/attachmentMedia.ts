@@ -208,8 +208,13 @@ export function getAttachmentDisplayStyle(
   // Tall images cap their WIDTH (never their height) so the aspect-ratio box
   // always matches the real proportions: width = min(maxWidth, maxHeight*ratio).
   const boxWidth = Math.min(maxWidth, Math.max(1, maxHeight * ratio));
+  // A pixel width (not `min(100%, Xpx)`) is deliberate: the media bubble is
+  // `fit-content`, and a percentage width contributes ZERO to intrinsic
+  // sizing — the whole photo bubble collapsed to 0×0 on mobile. `max-width`
+  // still keeps the box inside the chat column on narrow screens.
   return {
-    width: `min(100%, ${Math.round(boxWidth)}px)`,
+    width: `${Math.round(boxWidth)}px`,
+    maxWidth: "100%",
     aspectRatio: ratio,
     "--attachment-ratio": ratio,
   } as CSSProperties;

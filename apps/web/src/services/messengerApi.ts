@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  BlockedUser,
   ConversationView,
   GroupMember,
   MessageView,
@@ -11,6 +12,19 @@ import { apiClient } from "@/integrations/api/client";
 import { uploadFile } from "@/utils/storage";
 
 const BASE = "/api/v1/messenger";
+
+/** One row of the chat panel's shared-media grid. */
+export interface SharedAttachment {
+  id: string;
+  message_id: string;
+  url: string;
+  type: "image" | "video" | "audio" | "file";
+  name: string;
+  size: number;
+  mime: string;
+  meta: string | null;
+  created_at: string;
+}
 const TOKEN = () => apiClient.getToken() ?? "";
 
 async function tryRefreshToken(force = false): Promise<string | null> {
@@ -108,6 +122,51 @@ export const messengerApi = {
     return req("/notes", { method: "POST" });
   },
 
+  // ── E2E encryption ────────────────────────────────────────────────────
+  // Key directory for 1:1 E2E handshakes (Phase 2 contract). Private keys
+  // never leave the device; only the public JWK is published here.
+  async listMyKeys(): Promise<Array<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }>> {
+    return req("/keys");
+  },
+
+  async putDeviceKey(deviceId: string, publicKey: string, alg = "p256-aesgcm"): Promise<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }> {
+    return req("/keys", {
+      method: "PUT",
+      body: JSON.stringify({ device_id: deviceId, public_key: publicKey, alg }),
+    });
+  },
+
+  async deleteDeviceKey(deviceId: string): Promise<{ deleted: boolean }> {
+    return req(`/keys/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+  },
+
+  async getUserKeys(userId: string): Promise<Array<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }>> {
+    return req(`/users/${encodeURIComponent(userId)}/keys`);
+  },
+
+  /** Switches a 1:1 conversation between server-side and E2E encryption. */
+  async updateEncryptionMode(conversationId: string, mode: "server" | "e2e"): Promise<{ encryption_mode: string }> {
+    return req(`/conversations/${conversationId}/encryption`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  },
+
+  // ── Blocks (direct-message spam control) ──────────────────────────────
+  // The list is private to the blocker; blocking is idempotent and never
+  // deletes history on either side.
+  async listBlocks(): Promise<BlockedUser[]> {
+    return req("/blocks");
+  },
+
+  async blockUser(userId: string): Promise<{ blocked: boolean }> {
+    return req(`/blocks/${userId}`, { method: "POST" });
+  },
+
+  async unblockUser(userId: string): Promise<{ blocked: boolean }> {
+    return req(`/blocks/${userId}`, { method: "DELETE" });
+  },
+
   // ── Messages ──────────────────────────────────────────────────────────
   async getMessages(conversationId: string, before?: string, sinceEventId?: string, limit?: number): Promise<MessageView[]> {
     const params = new URLSearchParams();
@@ -116,6 +175,14 @@ export const messengerApi = {
     if (limit !== undefined) params.set("limit", String(limit));
     const query = params.toString();
     return req<MessageView[]>(`/conversations/${conversationId}/messages${query ? `?${query}` : ""}`);
+  },
+
+  /** Returns specific messages of a conversation (bounded by the server to 50).
+   *  Used by the notes pinned strip, whose items may live beyond the first page. */
+  async getMessagesByIds(conversationId: string, ids: string[]): Promise<MessageView[]> {
+    if (ids.length === 0) return [];
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    return req<MessageView[]>(`/conversations/${conversationId}/messages?${params.toString()}`);
   },
 
   /** Stores the client-encrypted pin/folder/tags blob for a note (verbatim). */
@@ -269,6 +336,25 @@ export const messengerApi = {
       method: "POST",
       body: JSON.stringify({}),
     });
+  },
+
+  /** Toggles my notification mute for one conversation. */
+  async setMuted(conversationId: string, muted: boolean): Promise<{ muted: boolean }> {
+    return req<{ muted: boolean }>(`/conversations/${conversationId}/mute`, {
+      method: "PUT",
+      body: JSON.stringify({ muted }),
+    });
+  },
+
+  /** Newest media/files of a conversation, scoped to the caller's membership. */
+  async listSharedAttachments(
+    conversationId: string,
+    types: Array<"image" | "video" | "audio" | "file"> = ["image", "video", "audio", "file"],
+    limit?: number,
+  ): Promise<SharedAttachment[]> {
+    const params = new URLSearchParams({ types: types.join(",") });
+    if (limit !== undefined) params.set("limit", String(limit));
+    return req<SharedAttachment[]>(`/conversations/${conversationId}/attachments?${params.toString()}`);
   },
 
   async getGroupMembers(groupId: string): Promise<GroupMember[]> {

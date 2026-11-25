@@ -24,14 +24,14 @@ func TestListConversations_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
 	}).
-		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, false, 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, now, now.Add(-time.Hour)).
-		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, false, 2, testUser3, "bob", "Bob", "emoji-2", "avatar.jpg", 1002, false, now.Add(-time.Hour), now.Add(-2*time.Hour), nil)
+		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, false, false, nil, nil, false, "server", 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, now, now.Add(-time.Hour)).
+		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, false, false, nil, nil, false, "server", 2, testUser3, "bob", "Bob", "emoji-2", "avatar.jpg", 1002, false, now.Add(-time.Hour), now.Add(-2*time.Hour), nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*LEFT JOIN`).
 		WithArgs(testUser1).
@@ -72,7 +72,7 @@ func TestListConversations_Empty(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
@@ -98,6 +98,131 @@ func TestListConversations_Empty(t *testing.T) {
 	}
 }
 
+func TestListConversations_PeerBlockedErasesRow(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
+	c.Set("claims", claims)
+
+	now := time.Now()
+	oldSeen := now.Add(-30 * 24 * time.Hour)
+	// What the SQL returns for the blocked side: preview/avatar/pin/read line
+	// already masked, presence collapsed and presence_hidden set.
+	rows := sqlmock.NewRows([]string{
+		"id", "last_message_at", "last_message_preview",
+		"last_message_sender_id", "pinned_message_id", "updated_at",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
+
+		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
+		"last_read_at",
+	}).AddRow(
+		testConv1, now, nil, testUser2, nil, now,
+		0, false, false, true, false, nil, nil, false, "server", 2,
+		testUser2, "alice", "Alice", nil, nil, 1001, false, oldSeen, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
+		WithArgs(testUser1).
+		WillReturnRows(rows)
+
+	handler.ListConversations(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(data) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(data))
+	}
+	first := data[0].(map[string]interface{})
+	if first["blocked_by_me"] == true {
+		t.Fatal("the blocked side must never receive blocked_by_me")
+	}
+	if first["presence_hidden"] != true {
+		t.Fatalf("expected presence_hidden=true for the blocked side, got %v", first["presence_hidden"])
+	}
+	if first["other_is_online"] != false {
+		t.Fatalf("the peer must look offline, got %v", first["other_is_online"])
+	}
+	if first["last_message_preview"] != nil {
+		t.Fatalf("history preview must be erased, got %v", first["last_message_preview"])
+	}
+	if first["pinned_message_id"] != nil || first["other_last_read_at"] != nil {
+		t.Fatalf("pin/read line must be erased, got %#v", first)
+	}
+	if first["other_avatar_url"] != nil {
+		t.Fatalf("avatar must be a placeholder, got %v", first["other_avatar_url"])
+	}
+	if unread, _ := first["unread_count"].(float64); unread != 0 {
+		t.Fatalf("unread badge must be cleared, got %v", first["unread_count"])
+	}
+	seenRaw, _ := first["other_last_seen_at"].(string)
+	seen, err := time.Parse(time.RFC3339, seenRaw)
+	if err != nil {
+		t.Fatalf("last_seen_at is not RFC3339: %q", seenRaw)
+	}
+	if time.Since(seen) < 7*24*time.Hour {
+		t.Fatalf("blocked peer must look long offline, got %s", seenRaw)
+	}
+}
+
+func TestListConversations_BlockerKeepsPeerAsBefore(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
+	c.Set("claims", claims)
+
+	now := time.Now()
+	// The blocker: only blocked_by_me flips. The peer keeps avatar, preview,
+	// real presence and the read line.
+	rows := sqlmock.NewRows([]string{
+		"id", "last_message_at", "last_message_preview",
+		"last_message_sender_id", "pinned_message_id", "updated_at",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
+
+		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
+		"last_read_at",
+	}).AddRow(
+		testConv1, now, "Hello!", testUser2, nil, now,
+		2, false, true, false, false, nil, nil, false, "server", 2,
+		testUser2, "alice", "Alice", "emoji-1", "alice.png", 1001, true, now, now, now,
+	)
+
+	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
+		WithArgs(testUser1).
+		WillReturnRows(rows)
+
+	handler.ListConversations(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	first := data[0].(map[string]interface{})
+	if first["blocked_by_me"] != true {
+		t.Fatalf("expected blocked_by_me for the blocker, got %v", first["blocked_by_me"])
+	}
+	if first["presence_hidden"] == true {
+		t.Fatal("the blocker must keep the real presence")
+	}
+	if first["other_is_online"] != true {
+		t.Fatalf("the blocker sees the peer online, got %v", first["other_is_online"])
+	}
+	if first["other_avatar_url"] != "alice.png" || first["last_message_preview"] == nil {
+		t.Fatalf("the blocker must keep avatar and a preview, got %#v", first)
+	}
+}
+
 func TestListConversations_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
@@ -120,12 +245,12 @@ func TestListConversations_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
-	}).AddRow(testConv1, now, "not-a-valid-ciphertext!", testUser2, nil, now, 3, false, false, nil, nil, false, 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, nil, nil)
+	}).AddRow(testConv1, now, "not-a-valid-ciphertext!", testUser2, nil, now, 3, false, false, false, false, nil, nil, false, "server", 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, nil, nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
 		WithArgs(testUser1).
@@ -186,6 +311,9 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
 
+	// 1:1 write gate (blocks / friends-only inbox).
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
+
 	// Atomic find-or-create via DB function
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
 		WithArgs(testUser1, testUser2).
@@ -217,6 +345,8 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\),`).
 		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
+
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	// Atomic find-or-create via DB function — returns new conversation
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
@@ -306,15 +436,7 @@ func TestLeaveConversation_Success(t *testing.T) {
 	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	// Notes check (regular conversation)
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 
 	// Delete membership
 	mock.ExpectExec(`DELETE FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2`).
@@ -335,13 +457,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectNoConversationAccess(mock, testConv1, testUser1)
 
 	handler.LeaveConversation(c)
 
@@ -415,12 +531,12 @@ func TestListConversations_NotesPreviewPassthrough(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
-	}).AddRow(testConv1, now, ciphertext, testUser1, nil, now, 0, false, false, nil, nil, true, 1,
+	}).AddRow(testConv1, now, ciphertext, testUser1, nil, now, 0, false, false, false, false, nil, nil, true, "server", 1,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
@@ -459,9 +575,7 @@ func TestLeaveConversation_NotesRejected(t *testing.T) {
 	c.Set("claims", claims)
 
 	// It IS the notes self-chat: leaving must be rejected.
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 
 	handler.LeaveConversation(c)
 

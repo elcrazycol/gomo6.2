@@ -11,11 +11,20 @@ import type {
 import { applyReaction, noteReactionUsed, replaceChips } from "@/components/messenger/reactions";
 import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
-import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+import { deleteCachedMessages, loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
+import {
+  decryptE2EMessage,
+  E2E_LOCKED,
+  encryptE2EMessage,
+  ensureE2EDevice,
+  parseE2EEnvelope,
+} from "@/utils/messengerCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
+import { attachmentPreviewText } from "@/components/messenger/attachmentPreview";
 import { appendMessages, mergeMessages, prependOlder, sortBySentAt } from "@/components/messenger/core/messageModel";
+import { deleteExitDuration } from "@/components/messenger/core/deleteAnimation";
 import {
   deleteOutbox,
   isPermanentSendError,
@@ -55,6 +64,156 @@ let conversationsLoadedAt = 0;
 export function __resetConversationCacheForTests(): void {
   conversationsInFlight = null;
   conversationsLoadedAt = 0;
+}
+
+// ─── Recent chats (in-memory LRU) ───────────────────────────────────────────
+// Telegram opens a chat with the messages already on screen. IndexedDB alone
+// cannot do that: even a warm read is asynchronous, so the first frame would
+// paint a skeleton. This small LRU keeps the last few opened chats' *decrypted*
+// message arrays in memory, so switching back to a recent chat is synchronous —
+// zero frames of skeleton, no flicker. The network refresh still runs and stays
+// authoritative; the LRU is only the first paint.
+const RECENT_CHAT_LIMIT = 5;
+const recentMessages = new Map<string, MessageView[]>();
+// A chat whose cache was already read once does not need another IndexedDB
+// round trip on every hover. Opening the chat fills the LRU itself.
+const prefetchAttempted = new Set<string>();
+
+function recentKey(ownerId: string | null, conversationId: string): string {
+  return `${ownerId ?? "anon"}:${conversationId}`;
+}
+
+function rememberRecentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
+  if (!ownerId || !conversationId || messages.length === 0) return;
+  const key = recentKey(ownerId, conversationId);
+  // Re-insert to refresh LRU order.
+  recentMessages.delete(key);
+  recentMessages.set(key, messages);
+  while (recentMessages.size > RECENT_CHAT_LIMIT) {
+    const oldest = recentMessages.keys().next().value;
+    if (oldest === undefined) break;
+    recentMessages.delete(oldest);
+  }
+}
+
+function readRecentMessages(ownerId: string | null, conversationId: string): MessageView[] | null {
+  if (!ownerId || !conversationId) return null;
+  const key = recentKey(ownerId, conversationId);
+  const hit = recentMessages.get(key);
+  if (!hit) return null;
+  // A read is a use: refresh position so the oldest *unused* chat is evicted.
+  recentMessages.delete(key);
+  recentMessages.set(key, hit);
+  return hit;
+}
+
+/** Test-only reset for the in-memory recent-chat LRU. */
+export function __resetRecentMessagesForTests(): void {
+  recentMessages.clear();
+  prefetchAttempted.clear();
+}
+
+// ─── Notes indices (device-local) ───────────────────────────────────────────
+// Notes organization is client-side E2E: the server only sees an opaque blob and
+// cannot answer "which notes are pinned". The device keeps its own small id
+// indices, so the pinned strip is rehydrated with ONE bounded by-ids request
+// instead of walking the entire history page by page.
+const NOTES_PINS_KEY = "gomo6:notes-pins:v1";
+const FAVORITE_NOTES_KEY = "gomo6:favorite-notes:v1";
+
+function readPinnedNoteIds(conversationId: string): string[] {
+  try {
+    const raw = localStorage.getItem(NOTES_PINS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    const ids = parsed?.[conversationId];
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedNoteIds(conversationId: string, ids: string[]): void {
+  try {
+    const raw = localStorage.getItem(NOTES_PINS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    if (ids.length > 0) parsed[conversationId] = ids;
+    else delete parsed[conversationId];
+    localStorage.setItem(NOTES_PINS_KEY, JSON.stringify(parsed));
+  } catch {
+    // Storage may be unavailable (private mode): the pin still works in-session.
+  }
+}
+
+function setNotePinnedLocally(conversationId: string, messageId: string, pinned: boolean): void {
+  const ids = readPinnedNoteIds(conversationId);
+  const next = pinned
+    ? (ids.includes(messageId) ? ids : [...ids, messageId])
+    : ids.filter((id) => id !== messageId);
+  if (next.length !== ids.length || pinned) writePinnedNoteIds(conversationId, next);
+}
+
+/** Folds a decrypted page into the pin index: the page's meta is authoritative
+ *  for the notes it contains (a pin toggled on another device is picked up). */
+function syncNotesPinIndex(conversationId: string, messages: MessageView[]): void {
+  if (messages.length === 0) return;
+  const ids = new Set(readPinnedNoteIds(conversationId));
+  let changed = false;
+  for (const message of messages) {
+    if (message.is_deleted) continue;
+    if (message.notesPinned && !ids.has(message.id)) {
+      ids.add(message.id);
+      changed = true;
+    } else if (!message.notesPinned && ids.delete(message.id)) {
+      changed = true;
+    }
+  }
+  if (changed) writePinnedNoteIds(conversationId, [...ids]);
+}
+
+// A favorite's content is hashed rather than stored: the index maps the hash to
+// the note id, so unfavoriting never needs to scan (or decrypt) the history.
+function favoriteContentKey(content: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${content.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function rememberFavoriteNoteId(content: string, messageId: string): void {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    parsed[favoriteContentKey(content)] = messageId;
+    localStorage.setItem(FAVORITE_NOTES_KEY, JSON.stringify(parsed));
+  } catch {
+    // Best-effort: the fallback path is the in-memory recent chat.
+  }
+}
+
+function readFavoriteNoteId(content: string): string | null {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed[favoriteContentKey(content)] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetFavoriteNoteId(content: string): void {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    delete parsed[favoriteContentKey(content)];
+    localStorage.setItem(FAVORITE_NOTES_KEY, JSON.stringify(parsed));
+  } catch {
+    // Best-effort.
+  }
 }
 /** The outbox retry loop (one timer, one in-flight flush). */
 let outboxTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,11 +271,228 @@ function persistMessages(ownerId: string | null, conversationId: string, message
   void saveCachedMessages(ownerId, conversationId, messages);
 }
 
+// ─── Deleted-message journal (device-local) ─────────────────────────────────
+// A deleted message must not survive anywhere the device can read from. The
+// server keeps only a contentless tombstone (its id is the sync marker), so a
+// cached copy in the LRU / IndexedDB would resurrect the message — a warm chat
+// would paint it for a frame, and an offline open would keep it for good. The
+// journal remembers the ids this device has seen deleted and filters every
+// list read, so the message is gone even before the authoritative page lands.
+const DELETED_MESSAGES_KEY = "gomo6:deleted-messages:v1";
+/** Bounded: ids are UUIDs, and the server never returns them again anyway. */
+const DELETED_MESSAGES_LIMIT = 500;
+
+let deletedMessageIds: Set<string> | null = null;
+
+/**
+ * The journal itself is not reactive (it is read from caches on hot paths), so
+ * a component that must react to an erasure—the reply banner pointing at a
+ * message that just vanished—subscribes to this tick instead.
+ */
+const useDeletedJournal = create<{ version: number }>(() => ({ version: 0 }));
+
+/** Bumps every time this device learns about another deleted message. */
+export function useDeletedMessagesVersion(): number {
+  return useDeletedJournal((s) => s.version);
+}
+
+function deletedJournal(): Set<string> {
+  if (deletedMessageIds) return deletedMessageIds;
+  deletedMessageIds = new Set<string>();
+  try {
+    const raw = localStorage.getItem(DELETED_MESSAGES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    if (Array.isArray(parsed)) {
+      for (const id of parsed) if (typeof id === "string") deletedMessageIds.add(id);
+    }
+  } catch {
+    // Storage may be unavailable (private mode): the journal still works in-session.
+  }
+  return deletedMessageIds;
+}
+
+function rememberDeletedMessage(messageId: string): void {
+  const journal = deletedJournal();
+  if (journal.has(messageId)) return;
+  journal.add(messageId);
+  // Subscribers (the reply banner, the editor) drop the target in this frame.
+  useDeletedJournal.setState((s) => ({ version: s.version + 1 }));
+  try {
+    // Keep the newest ids: Set iteration order is insertion order.
+    const ids = [...journal];
+    const kept = ids.slice(Math.max(0, ids.length - DELETED_MESSAGES_LIMIT));
+    if (kept.length !== ids.length) {
+      deletedMessageIds = new Set(kept);
+      localStorage.setItem(DELETED_MESSAGES_KEY, JSON.stringify(kept));
+    } else {
+      localStorage.setItem(DELETED_MESSAGES_KEY, JSON.stringify(ids));
+    }
+  } catch {
+    // A failed persist only costs a resurrected frame after a reload.
+  }
+}
+
+/** Drops messages this device knows are deleted (see the journal above). */
+function withoutDeletedMessages(messages: MessageView[]): MessageView[] {
+  if (messages.length === 0) return messages;
+  const journal = deletedJournal();
+  const kept = messages.filter((message) => !message.is_deleted && !journal.has(message.id));
+  return kept.length === messages.length ? messages : kept;
+}
+
+/** True when this device knows the message was deleted (see the journal above). */
+export function isMessageDeleted(messageId: string): boolean {
+  return deletedJournal().has(messageId);
+}
+
+/**
+ * Client ids the reader deleted while their send was still in flight. The
+ * server may still have created the row, so the send response must delete it
+ * instead of re-adding a bubble (and the realtime echo of it is ignored).
+ */
+const cancelledSends = new Set<string>();
+
+/** Test-only reset for the deleted-message journal. */
+export function __resetDeletedMessageJournalForTests(): void {
+  deletedMessageIds = new Set<string>();
+  cancelledSends.clear();
+  useDeletedJournal.setState({ version: 0 });
+}
+
+/**
+ * Best-effort removal of a row the server created after the reader had already
+ * deleted its pending bubble. The local journal keeps it out of this device
+ * either way; the delete makes the peer's copy disappear too.
+ */
+async function discardSentMessage(conversationId: string, messageId: string, outboxEntryKey: string): Promise<void> {
+  await deleteOutbox(outboxEntryKey);
+  try {
+    await messengerApi.deleteMessage(conversationId, messageId);
+    rememberDeletedMessage(messageId);
+  } catch {
+    // A failed cleanup only leaves a row this device never shows.
+  }
+}
+
+// ─── Delete exit (the row stays mounted while it crumbles) ──────────────────
+// The store owns the removal timing: the bubble must be able to play its exit
+// (see components/messenger/core/deleteAnimation.ts) before the row is dropped.
+// One timer per message, keyed by id, cleared on failure and on teardown.
+const deleteExits = new Map<string, { conversationId: string; timer: number }>();
+
+function scheduleDeleteFinalize(conversationId: string, messageId: string): void {
+  const existing = deleteExits.get(messageId);
+  if (existing) clearTimeout(existing.timer);
+  const delay = deleteExitDuration();
+  const timer = window.setTimeout(() => {
+    deleteExits.delete(messageId);
+    useMessengerStore.getState().finalizeDeletedMessage(conversationId, messageId);
+  }, delay);
+  deleteExits.set(messageId, { conversationId, timer });
+}
+
+function cancelDeleteFinalize(messageId: string): void {
+  const existing = deleteExits.get(messageId);
+  if (!existing) return;
+  clearTimeout(existing.timer);
+  deleteExits.delete(messageId);
+}
+
+/**
+ * Marks a message as exiting: it stays in `messages` for the animation, but
+ * every other surface (chat-list line, pin, cache) already treats it as gone.
+ */
+function markMessageDeleting(conversationId: string, messageId: string): void {
+  useMessengerStore.setState((s) => {
+    if (s.selectedConversationId !== conversationId) return s;
+    const target = s.messages.find((m) => m.id === messageId);
+    if (!target || target.deleting) return s;
+    const messages = s.messages.map((m) => (m.id === messageId ? { ...m, deleting: true } : m));
+    const survivors = messages.filter((m) => m.id !== messageId);
+    // The cache is written from the survivors: a reload must never replay the
+    // exit of a message the server no longer has.
+    cacheCurrentMessages(s.me?.id ?? null, conversationId, survivors);
+    return {
+      messages,
+      pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              ...previewAfterRemoval(survivors),
+              pinned_message_id: c.pinned_message_id === messageId ? null : c.pinned_message_id,
+            }
+          : c,
+      ),
+    };
+  });
+}
+
+
 // ─── Notes (client-side E2E self-chat) helpers ───────────────────────────────
 
 function notesConversationExists(conversationId: string | null | undefined): boolean {
   if (!conversationId) return false;
   return useMessengerStore.getState().conversations.some((c) => c.id === conversationId && c.is_notes);
+}
+
+function e2eConversationExists(conversationId: string | null | undefined): boolean {
+  if (!conversationId) return false;
+  return useMessengerStore.getState().conversations.some(
+    (c) => c.id === conversationId && c.encryption_mode === "e2e" && !c.is_notes,
+  );
+}
+
+function opaqueConversationExists(conversationId: string | null | undefined): boolean {
+  return notesConversationExists(conversationId) || e2eConversationExists(conversationId);
+}
+
+// Peer public-key cache for E2E 1:1 chats (user id → public JWK). Fetched
+// lazily from the key directory; entries are small and safe to keep in memory.
+const e2ePeerKeyCache = new Map<string, JsonWebKey>();
+
+async function getE2EPeerKey(userId: string): Promise<JsonWebKey | null> {
+  const cached = e2ePeerKeyCache.get(userId);
+  if (cached) return cached;
+  try {
+    const keys = await messengerApi.getUserKeys(userId);
+    const jwk = keys.length > 0 ? (JSON.parse(keys[0].public_key) as JsonWebKey) : null;
+    if (jwk) e2ePeerKeyCache.set(userId, jwk);
+    return jwk;
+  } catch {
+    return null;
+  }
+}
+
+export function __resetE2EPeerKeyCacheForTests(): void {
+  e2ePeerKeyCache.clear();
+}
+
+// Decrypts a batch of messages for an E2E 1:1 conversation. The peer key comes
+// from the key directory; without it (or without a local device identity) the
+// message shows the locked placeholder instead of opaque ciphertext.
+async function decryptE2EMessages(conversationId: string, messages: MessageView[]): Promise<MessageView[]> {
+  if (!e2eConversationExists(conversationId) || messages.length === 0) return messages;
+  const conv = useMessengerStore.getState().conversations.find((c) => c.id === conversationId);
+  const peerId = conv?.other_user_id;
+  if (!peerId) return messages;
+  const peerKey = await getE2EPeerKey(peerId);
+  if (!peerKey) {
+    return messages.map((m) =>
+      m.content && !m.is_deleted && parseE2EEnvelope(m.content) ? { ...m, content: E2E_LOCKED } : m,
+    );
+  }
+  return Promise.all(
+    messages.map(async (message) => {
+      if (!message.content || message.is_deleted || !parseE2EEnvelope(message.content)) return message;
+      const decrypted = await decryptE2EMessage(message.content, peerKey, conversationId, message.sender_user_id);
+      if (decrypted === null) {
+        if (message.content !== E2E_LOCKED) return { ...message, content: E2E_LOCKED };
+        return message;
+      }
+      return { ...message, content: decrypted };
+    }),
+  );
 }
 
 // Decrypts a batch of messages for the notes conversation. The store only ever
@@ -167,8 +543,9 @@ function sanitizeServerPreview(preview: string | null | undefined): string {
     .slice(0, 80);
 }
 
-// Decrypts notes conversation previews (the server passes the client
-// ciphertext through verbatim so the device can decrypt them locally).
+// Decrypts conversation previews. Notes and E2E 1:1 conversations carry
+// opaque client ciphertext that the server passes through verbatim, so the
+// device decrypts them locally.
 async function decryptNotesPreviews(conversations: ConversationView[]): Promise<ConversationView[]> {
   return Promise.all(
     conversations.map(async (c) => {
@@ -177,6 +554,26 @@ async function decryptNotesPreviews(conversations: ConversationView[]): Promise<
         if (!preview) return c;
         const decrypted = await decryptNote(preview, c.id);
         return { ...c, last_message_preview: sanitizeServerPreview(decrypted ?? NOTES_LOCKED) };
+      }
+      if (c.encryption_mode === "e2e" && c.last_message_preview && c.other_user_id) {
+        const peerKey = await getE2EPeerKey(c.other_user_id);
+        if (!peerKey) return { ...c, last_message_preview: E2E_LOCKED.slice(0, 80) };
+        if (!parseE2EEnvelope(c.last_message_preview)) {
+          // Not an envelope (e.g. a legacy row) — show it as-is.
+          return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
+        }
+        // The AAD binds the SENDER, so decrypt as whoever wrote the last row:
+        // the peer, or me. Try the recorded sender first, then both parties.
+        const meId = useMessengerStore.getState().me?.id ?? "";
+        const candidates = [c.last_message_sender_id, c.other_user_id, meId].filter(
+          (id): id is string => Boolean(id),
+        );
+        let plain: string | null = null;
+        for (const senderId of candidates) {
+          plain = await decryptE2EMessage(c.last_message_preview, peerKey, c.id, senderId).catch(() => null);
+          if (plain !== null) break;
+        }
+        return { ...c, last_message_preview: sanitizeServerPreview(plain ?? E2E_LOCKED) };
       }
       return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
     }),
@@ -227,9 +624,14 @@ function withOutboxEntries(
 }
 
 function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
-  // Notes content is encrypted with a device-local key; never persist it to
-  // the IndexedDB cache (the store already holds the readable plaintext).
-  if (messages.length > 0 && !notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, messages);
+  // In-memory first: the store already holds decrypted text, and the LRU is
+  // what makes a return to a recent chat synchronous.
+  rememberRecentMessages(ownerId, conversationId, messages);
+  // Opaque content (notes, e2e) is device-encrypted: never persist the readable
+  // plaintext to the IndexedDB cache — the store is the only place it lives.
+  if (messages.length > 0 && !opaqueConversationExists(conversationId)) {
+    persistMessages(ownerId, conversationId, messages);
+  }
 }
 
 function normalizeConversationUnread(conversation: ConversationView, selectedId: string | null): ConversationView {
@@ -239,6 +641,29 @@ function normalizeConversationUnread(conversation: ConversationView, selectedId:
     return { ...conversation, unread_count: 0 };
   }
   return conversation;
+}
+
+/** The chat-list line a conversation shows after `messages` (the open chat's
+ *  list, already chronological). Deleting the newest message must update the
+ *  list in the same frame instead of waiting for the server broadcast. */
+function previewAfterRemoval(messages: MessageView[]): Pick<
+  ConversationView,
+  "last_message_at" | "last_message_preview" | "last_message_sender_id"
+> {
+  const last = messages[messages.length - 1] ?? null;
+  if (!last) {
+    return { last_message_at: null, last_message_preview: null, last_message_sender_id: null };
+  }
+  const preview = last.content.trim()
+    ? messengerPlainPreview(last.content, 80)
+    : last.attachments && last.attachments.length > 0
+      ? attachmentPreviewText(last.attachments)
+      : "";
+  return {
+    last_message_at: last.sent_at,
+    last_message_preview: preview,
+    last_message_sender_id: last.sender_user_id,
+  };
 }
 
 
@@ -365,12 +790,19 @@ export function  destroyMessenger(): void {
   pendingReadLine.clear();
   lastSentReadLine.clear();
   lastReceiptsLoad.clear();
+  e2ePeerKeyCache.clear();
   // Clear all typing timers
   for (const timer of typingTimers.values()) clearTimeout(timer);
   typingTimers.clear();
   latestEventIds.clear();
   localReadThrough.clear();
   pendingOlderPages.clear();
+  // A pending exit belongs to a row that is about to be unmounted with the rest.
+  for (const { timer } of deleteExits.values()) clearTimeout(timer);
+  deleteExits.clear();
+  // Decrypted message arrays must never outlive the session.
+  recentMessages.clear();
+  prefetchAttempted.clear();
 }
 
 export function queueMarkDelivered(conversationId: string, messageId: string, sentAt?: string): void {
@@ -473,6 +905,9 @@ type MessengerStore = {
   selectedConversationId: string | null;
   openingUnreadCount: number;
   messages: MessageView[];
+  /** Pinned notes that are beyond the loaded page, hydrated by id. The pinned
+   *  strip renders these plus the pinned items already in `messages`. */
+  pinnedNotes: MessageView[];
   receipts: Map<string, ReceiptRow[]>; // conversation_id → receipts
   typingUsers: Record<string, TypingUser>; // user_id → typing info
   onlineUsers: Set<string>;
@@ -494,6 +929,10 @@ type MessengerStore = {
   loadConversations: (opts?: { force?: boolean }) => Promise<ConversationView[]>;
   ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
+  /** Warms the in-memory LRU for a chat the user is about to open (hover/focus
+   *  on a conversation row). Reads IndexedDB, decrypts opaque payloads and
+   *  stops there — no network request until the chat is actually opened. */
+  prefetchConversation: (conversationId: string) => Promise<void>;
   syncMessages: (conversationId: string) => Promise<void>;
   /** Fetches the previous page. With `{ postpone: true }` the page is buffered
    *  instead of inserted — the caller decides when it is safe to show it. */
@@ -508,6 +947,8 @@ type MessengerStore = {
   flushOutbox: () => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  /** Drops a row whose delete exit has finished (see `core/deleteAnimation`). */
+  finalizeDeletedMessage: (conversationId: string, messageId: string) => void;
   markRead: (messageId: string) => Promise<void>;
   markDelivered: (messageId: string) => Promise<void>;
   createConversation: (userId: string) => Promise<string | null>;
@@ -525,6 +966,8 @@ type MessengerStore = {
   setNotesMeta: (messageId: string, meta: NotesMeta) => Promise<void>;
   /** Flips the pin flag of a note. */
   toggleNotesPin: (messageId: string) => Promise<void>;
+  /** Rehydrates the notes pinned strip (ids beyond the loaded page). */
+  loadPinnedNotes: (conversationId: string) => Promise<void>;
   /** Mirrors a favorited post/thread into the notes chat as a note. Best-effort
    *  (issue #509); returns the note id, or null on failure. Never disturbs the
    *  currently open chat and never depends on `me` being loaded. */
@@ -533,6 +976,14 @@ type MessengerStore = {
    *  content. Best-effort; never creates a notes chat just to delete. */
   deleteFavoriteNote: (content: string) => Promise<void>;
   loadReceipts: (conversationId: string) => Promise<void>;
+  /** Applies a realtime read_receipt event in O(1) without a GET /receipts round-trip. */
+  applyReadReceiptEvent: (event: { conversation_id: string; user_id: string; message_id: string; read_at?: string }) => void;
+  /** Applies a realtime delivery_receipt event in O(1) without a GET /receipts round-trip. */
+  applyDeliveryReceiptEvent: (event: { conversation_id: string; user_id: string; message_id: string; delivered_at?: string }) => void;
+
+  /** Applies a realtime conversation_updated event (encryption switch or a
+   *  deleted/edited last message changing the chat-list preview). */
+  applyConversationUpdatedEvent: (event: { conversation_id: string; encryption_mode?: string; preview_changed?: boolean }) => void;
 
   // ── Actions (local) ───────────────────────────────────────────────────
   selectConversation: (id: string | null) => void;
@@ -546,6 +997,16 @@ type MessengerStore = {
    * so the sidebar dot and the chat header react instantly. */
   setUserPresence: (userId: string, online: boolean, lastSeen?: string | null) => void;
   updateConversationFromWs: (convId: string, updates: Partial<ConversationView>, incrementUnread?: boolean) => void;
+  /** Optimistic local mute state for a conversation (server is updated by the
+   *  caller through messengerApi.setMuted). */
+  setConversationMuted: (conversationId: string, muted: boolean) => void;
+  /** Optimistic block flag: flips the composer to the unblock panel (or back)
+   *  the moment the block API answers, without waiting for a list refetch. */
+  setConversationBlockedByMe: (conversationId: string, blocked: boolean) => void;
+  /** The peer blocked me: an open chat empties itself, its local cache and
+   *  its outbox are dropped. Local only — the server already stopped serving
+   *  the history. */
+  applyPeerBlocked: (conversationId: string) => void;
 };
 
 // ─── Store implementation ───────────────────────────────────────────────────
@@ -556,6 +1017,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   selectedConversationId: null,
   openingUnreadCount: 0,
   messages: [],
+  pinnedNotes: [],
   receipts: new Map(),
   typingUsers: {},
   onlineUsers: new Set(),
@@ -678,13 +1140,20 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     pendingOlderPages.delete(conversationId);
     let hasCachedMessages = false;
     const ownerId = get().me?.id ?? null;
-    set({ isMessagesLoading: true, error: null });
+    // A warm chat is already on screen: refreshing it must not replace the
+    // messages with a skeleton even for a frame.
+    const warm = readRecentMessages(ownerId, conversationId);
+    set({ isMessagesLoading: !warm, error: null });
 
     // Render the last local snapshot first. The network request below still
     // runs immediately and remains authoritative when it succeeds.
     try {
       const cached = ownerId ? await loadCachedMessages(ownerId, conversationId) : null;
-      const cachedView = cached ? await decryptNotesMessages(conversationId, cached) : null;
+      const cachedNotes = cached ? await decryptNotesMessages(conversationId, cached) : null;
+      const cachedDecrypted = cachedNotes ? await decryptE2EMessages(conversationId, cachedNotes) : null;
+      // A cache written before a delete still holds the message: the journal
+      // drops it so a warm chat never flashes a bubble that no longer exists.
+      const cachedView = cachedDecrypted ? withoutDeletedMessages(cachedDecrypted) : null;
       if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
         const queued = ownerId ? await listOutbox(ownerId) : [];
@@ -699,25 +1168,15 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
 
     try {
-      // Notes are personal-scale: load every message so the pinned section and
-      // folder filters are complete — a pinned note could otherwise sit beyond
-      // the first paginated page. Loop 100-message pages with the `before`
-      // cursor until the server returns an empty page.
-      let raw: MessageView[];
-      if (notesConversationExists(conversationId)) {
-        raw = [];
-        let before: string | undefined;
-        for (let page = 0; page < 200; page += 1) {
-          const pageRaw = await messengerApi.getMessages(conversationId, before, undefined, 100);
-          if (pageRaw.length === 0) break;
-          raw = [...pageRaw, ...raw];
-          if (pageRaw.length < 100) break;
-          before = pageRaw[0].id;
-        }
-      } else {
-        raw = await messengerApi.getMessages(conversationId);
-      }
-      const rawMsgs = await decryptNotesMessages(conversationId, raw);
+      // Notes open exactly like any other chat: one page, then "load more".
+      // The pinned strip is hydrated separately by id (loadPinnedNotes), so
+      // opening notes no longer downloads up to 200 pages of history.
+      const raw = await messengerApi.getMessages(conversationId);
+      const rawMsgsNotes = await decryptNotesMessages(conversationId, raw);
+      const rawDecrypted = await decryptE2EMessages(conversationId, rawMsgsNotes);
+      // History pages never carry tombstones (the backend filters them), but a
+      // delta/legacy page might: a deleted message is not history.
+      const rawMsgs = withoutDeletedMessages(rawDecrypted);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       const queued = ownerId ? await listOutbox(ownerId) : [];
       const msgs = ownerId
@@ -731,18 +1190,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           .filter((entry) => confirmed.has(entry.clientId))
           .forEach((entry) => void deleteOutbox(entry.key));
       }
+      rememberRecentMessages(ownerId, conversationId, msgs);
       set({
         messages: msgs,
         isMessagesLoading: false,
         // Pagination is a property of the server page, not of pending bubbles.
-        hasMoreMessages: !notesConversationExists(conversationId) && rawMsgs.length >= 50,
+        hasMoreMessages: !opaqueConversationExists(conversationId) && rawMsgs.length >= 50,
       });
       rememberLatestEventId(conversationId, msgs);
-      // Notes content is device-encrypted: never persist it to the IndexedDB
-      // cache (the store already holds the readable plaintext).
+      // Opaque (notes / e2e) content is device-encrypted: never persist it to
+      // the IndexedDB cache (the store already holds the readable plaintext).
       // Cache only what the server confirmed: pending bubbles are re-attached
       // from the outbox on the next load.
-      if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
+      if (!opaqueConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
+      if (notesConversationExists(conversationId)) {
+        syncNotesPinIndex(conversationId, rawMsgs);
+        void get().loadPinnedNotes(conversationId);
+      }
       // Read marking is owned by MessageList's visibility tracking: only the
       // messages actually on screen get a read receipt (each with its own real
       // read_at). Loading a conversation must not auto-read its whole history.
@@ -755,19 +1219,51 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
+  // ── Warm a chat before it is opened ───────────────────────────────────
+  // Called on hover/focus of a conversation row. It only reads the local cache
+  // and decrypts opaque payloads, so it costs no network request; by the time
+  // the user taps, selectConversation can seed the message list synchronously.
+  prefetchConversation: async (conversationId) => {
+    if (!conversationId) return;
+    const ownerId = get().me?.id ?? null;
+    if (!ownerId) return;
+    if (readRecentMessages(ownerId, conversationId)) return;
+    const key = recentKey(ownerId, conversationId);
+    if (prefetchAttempted.has(key)) return;
+    prefetchAttempted.add(key);
+    try {
+      const cached = await loadCachedMessages(ownerId, conversationId);
+      if (!cached?.length) return;
+      const decryptedNotes = await decryptNotesMessages(conversationId, cached);
+      const view = await decryptE2EMessages(conversationId, decryptedNotes);
+      rememberRecentMessages(ownerId, conversationId, view);
+    } catch {
+      // A cache miss is never an error: the network path still loads the chat.
+    }
+  },
+
   // ── Reconnect delta sync ──────────────────────────────────────────────
   syncMessages: async (conversationId: string) => {
     const ownerId = get().me?.id ?? null;
     const sinceEventId = latestEventIds.get(conversationId);
     try {
       const raw = await messengerApi.getMessages(conversationId, undefined, sinceEventId);
-      const delta = await decryptNotesMessages(conversationId, raw);
+      const deltaNotes = await decryptNotesMessages(conversationId, raw);
+      const deltaDecrypted = await decryptE2EMessages(conversationId, deltaNotes);
       if (get().selectedConversationId !== conversationId || get().me?.id !== ownerId) return;
-      if (delta.length === 0) return;
+      if (deltaDecrypted.length === 0) return;
+      // A tombstone in the delta is a deletion instruction, not history: the
+      // row carries no content, only the id the device must forget.
+      for (const message of deltaDecrypted) {
+        if (message.is_deleted) rememberDeletedMessage(message.id);
+      }
+      const delta = withoutDeletedMessages(deltaDecrypted);
       set((s) => {
-        const messages = mergeMessages(s.messages, delta);
-        rememberLatestEventId(conversationId, delta);
-        cacheCurrentMessages(ownerId, conversationId, messages);
+        const messages = withoutDeletedMessages(mergeMessages(s.messages, delta));
+        cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+        // The cursor advances over the tombstone too — otherwise every
+        // reconnect would replay the same deletion.
+        rememberLatestEventId(conversationId, deltaDecrypted);
         return { messages };
       });
     } catch {
@@ -796,7 +1292,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set({ isLoadingMore: true });
     try {
       const raw = await messengerApi.getMessages(conversationId, oldest.id);
-      const older = await decryptNotesMessages(conversationId, raw);
+      const olderNotes = await decryptNotesMessages(conversationId, raw);
+      const older = await decryptE2EMessages(conversationId, olderNotes);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) {
         if (requestGeneration === loadMoreRequestGeneration) {
           set({ isLoadingMore: false });
@@ -863,13 +1360,31 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
     // Notes: encrypt plaintext locally before it ever leaves the device. The
     // server stores the ciphertext verbatim and never holds the key.
+    // E2E 1:1 chats use the same verbatim rule with the shared ECDH key.
     const isNotes = notesConversationExists(convId);
+    const isE2E = !isNotes && e2eConversationExists(convId);
     let wireContent = content;
     if (isNotes && content.trim()) {
       try {
         wireContent = await encryptNote(content, convId);
       } catch {
         set({ error: "Не удалось зашифровать заметку" });
+        return "";
+      }
+    } else if (isE2E && content.trim()) {
+      try {
+        const conv = get().conversations.find((c) => c.id === convId);
+        const peerId = conv?.other_user_id;
+        const meId = get().me?.id ?? "";
+        const peerKey = peerId ? await getE2EPeerKey(peerId) : null;
+        if (!peerKey) {
+          set({ error: "Нет ключа собеседника для E2E" });
+          return "";
+        }
+        await ensureE2EDevice();
+        wireContent = await encryptE2EMessage(content, peerKey, convId, meId);
+      } catch {
+        set({ error: "Не удалось зашифровать сообщение" });
         return "";
       }
     }
@@ -903,7 +1418,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const previewText = content.trim()
         ? messengerPlainPreview(content, 80)
         : attachments && attachments.length > 0
-          ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+          ? attachmentPreviewText(attachments)
           : "";
       const conversations = target
         ? [
@@ -957,12 +1472,27 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           parentMessageId,
           attachments,
         );
+        if (cancelledSends.delete(clientId)) {
+          // The reader deleted the bubble while this request was in flight: the
+          // server created the row anyway, so it goes too. No state update — the
+          // message must not flash back into the chat or the list preview.
+          await discardSentMessage(convId, msg.id, outboxEntry.key);
+          return msg.id;
+        }
         const sentAt = msg.sent_at;
-        // For notes the server echoes the client ciphertext; decrypt it back to
-        // plaintext so the store only ever holds readable notes.
+        // For opaque conversations the server echoes the client ciphertext;
+        // decrypt it back to plaintext so the store only ever holds readable
+        // content.
         let displayContent = msg.content;
         if (isNotes) {
           const decrypted = await decryptNote(msg.content, convId);
+          displayContent = decrypted ?? content;
+        } else if (isE2E) {
+          const conv = get().conversations.find((c) => c.id === convId);
+          const peerId = conv?.other_user_id;
+          const peerKey = peerId ? await getE2EPeerKey(peerId) : null;
+          const meId = get().me?.id ?? "";
+          const decrypted = peerKey ? await decryptE2EMessage(msg.content, peerKey, convId, meId) : null;
           displayContent = decrypted ?? content;
         }
         set((s) => {
@@ -979,7 +1509,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             const previewText = content.trim()
               ? messengerPlainPreview(content, 80)
               : attachments && attachments.length > 0
-                ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+                ? attachmentPreviewText(attachments)
                 : "";
             const updated = {
               ...target,
@@ -1055,12 +1585,27 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         }
 
         const isNotes = notesConversationExists(entry.conversationId);
+        const isE2E = !isNotes && e2eConversationExists(entry.conversationId);
         let wireContent = entry.content;
         if (isNotes && entry.content.trim()) {
           try {
             wireContent = await encryptNote(entry.content, entry.conversationId);
           } catch {
             // Cannot encrypt on this device (notes key gone): keep it queued.
+            blocked.add(entry.conversationId);
+            continue;
+          }
+        } else if (isE2E && entry.content.trim()) {
+          try {
+            const conv = get().conversations.find((c) => c.id === entry.conversationId);
+            const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+            if (!peerKey) {
+              blocked.add(entry.conversationId);
+              continue;
+            }
+            await ensureE2EDevice();
+            wireContent = await encryptE2EMessage(entry.content, peerKey, entry.conversationId, me.id);
+          } catch {
             blocked.add(entry.conversationId);
             continue;
           }
@@ -1074,9 +1619,22 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             entry.parentMessageId,
             entry.attachments.length > 0 ? entry.attachments : undefined,
           );
-          const displayContent = isNotes
-            ? (await decryptNote(msg.content, entry.conversationId)) ?? entry.content
-            : msg.content;
+          if (cancelledSends.delete(entry.clientId)) {
+            // Deleted while this retry was in flight: drop the row the server
+            // just created and never materialize the bubble.
+            await discardSentMessage(entry.conversationId, msg.id, entry.key);
+            continue;
+          }
+          let displayContent = msg.content;
+          if (isNotes) {
+            displayContent = (await decryptNote(msg.content, entry.conversationId)) ?? entry.content;
+          } else if (isE2E) {
+            const conv = get().conversations.find((c) => c.id === entry.conversationId);
+            const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+            displayContent = peerKey
+              ? (await decryptE2EMessage(msg.content, peerKey, entry.conversationId, me.id)) ?? entry.content
+              : entry.content;
+          }
           const delivered: MessageView = {
             ...msg,
             content: displayContent,
@@ -1097,7 +1655,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
               const previewText = entry.content.trim()
                 ? messengerPlainPreview(entry.content, 80)
                 : entry.attachments.length > 0
-                  ? `📎 ${entry.attachments.length > 1 ? `${entry.attachments.length} файлов` : entry.attachments[0].name}`
+                  ? attachmentPreviewText(entry.attachments)
                   : "";
               conversations = [
                 {
@@ -1162,6 +1720,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     if (!selectedConversationId) return;
 
     // Notes: encrypt the new content locally before the edit request.
+    // E2E 1:1 chats use the shared ECDH key with the same verbatim rule.
     let wireContent = content;
     if (notesConversationExists(selectedConversationId) && content.trim()) {
       try {
@@ -1170,16 +1729,36 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         set({ error: "Не удалось зашифровать заметку" });
         return;
       }
+    } else if (e2eConversationExists(selectedConversationId) && content.trim()) {
+      try {
+        const conv = get().conversations.find((c) => c.id === selectedConversationId);
+        const meId = get().me?.id ?? "";
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        if (!peerKey) {
+          set({ error: "Нет ключа собеседника для E2E" });
+          return;
+        }
+        await ensureE2EDevice();
+        wireContent = await encryptE2EMessage(content, peerKey, selectedConversationId, meId);
+      } catch {
+        set({ error: "Не удалось зашифровать сообщение" });
+        return;
+      }
     }
 
     // Save original content for rollback
     const original = get().messages.find((m) => m.id === messageId);
     const originalContent = original?.content ?? content;
 
-    // Optimistic update
-    set((s) => ({
-      messages: s.messages.map((m) => (m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m)),
-    }));
+    // Optimistic update (and the recent-chat snapshot, so a switch back shows
+    // the edited text rather than the pre-edit one).
+    set((s) => {
+      const messages = s.messages.map((m) =>
+        m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m,
+      );
+      cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
+      return { messages };
+    });
 
     try {
       await messengerApi.editMessage(selectedConversationId, messageId, wireContent);
@@ -1198,6 +1777,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   deleteMessage: async (messageId: string) => {
     const { selectedConversationId, me } = get();
     if (!selectedConversationId) return;
+    const conversationId = selectedConversationId;
 
     // A queued message has no server row yet: deleting it must drop it from the
     // outbox, otherwise the retry would resurrect it after the bubble is gone.
@@ -1206,18 +1786,87 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     );
     if (local?.client_id) {
       if (me) void deleteOutbox(outboxKey(me.id, local.conversation_id, local.client_id));
+      // The request may already be on the wire: the send response will delete
+      // the row the server just created instead of showing it again.
+      cancelledSends.add(local.client_id);
       set((s) => ({ messages: s.messages.filter((m) => m.id !== messageId) }));
       return;
     }
 
+    const removed = get().messages.find((m) => m.id === messageId) ?? null;
+    // Already gone (a double tap, or another device was faster): nothing to
+    // animate and nothing to ask the server twice.
+    if (!removed || removed.deleting) return;
+
+    const pinnedBefore = get().conversations.find((c) => c.id === conversationId)?.pinned_message_id ?? null;
+
+    // Telegram-fast, still graceful: the bubble starts crumbling in this frame
+    // and the row disappears when the exit ends (≈200ms), so the list closes the
+    // gap smoothly instead of jumping. The chat-list line and the pin go at
+    // once — the reader never waits for either.
+    setNotePinnedLocally(conversationId, messageId, false);
+    markMessageDeleting(conversationId, messageId);
+    scheduleDeleteFinalize(conversationId, messageId);
+
     try {
-      await messengerApi.deleteMessage(selectedConversationId, messageId);
-      set((s) => ({
-        messages: s.messages.map((m) => (m.id === messageId ? { ...m, is_deleted: true, content: "" } : m)),
-      }));
+      await messengerApi.deleteMessage(conversationId, messageId);
+      // Only a confirmed delete is remembered: a failure must be able to bring
+      // the message back (the journal would otherwise hide it forever).
+      rememberDeletedMessage(messageId);
     } catch {
+      // A failed delete must never eat the message. The exit is already on
+      // screen, so the row is re-created after it finishes — resurrecting the
+      // same DOM node would keep the dead exit styles on it.
+      if (!deletedJournal().has(messageId)) {
+        const restore = () => {
+          if (get().selectedConversationId !== conversationId) return;
+          if (deletedJournal().has(messageId)) return;
+          const existing = get().messages.find((m) => m.id === messageId);
+          if (existing) {
+            // Another path already brought it back: only clear the flag.
+            set((s) => ({
+              messages: s.messages.map((m) => (m.id === messageId ? { ...m, deleting: false } : m)),
+            }));
+            return;
+          }
+          if (removed.notesPinned) setNotePinnedLocally(conversationId, messageId, true);
+          set((s) => {
+            const messages = sortBySentAt([...s.messages, removed]);
+            cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+            return {
+              messages,
+              conversations: s.conversations.map((c) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      ...previewAfterRemoval(messages),
+                      pinned_message_id: pinnedBefore === messageId ? messageId : c.pinned_message_id,
+                    }
+                  : c,
+              ),
+            };
+          });
+        };
+        if (deleteExits.has(messageId)) {
+          // Let the exit finish first (it owns the row's DOM).
+          window.setTimeout(restore, deleteExitDuration() + 60);
+        } else {
+          cancelDeleteFinalize(messageId);
+          restore();
+        }
+      }
       set({ error: "Не удалось удалить сообщение" });
     }
+  },
+
+  /** The exit finished: the row leaves the list (and the cache) for good. */
+  finalizeDeletedMessage: (conversationId, messageId) => {
+    set((s) => {
+      if (!s.messages.some((m) => m.id === messageId)) return s;
+      const messages = s.messages.filter((m) => m.id !== messageId);
+      cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+      return { messages };
+    });
   },
 
   // ── Mark read ─────────────────────────────────────────────────────────
@@ -1368,15 +2017,20 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       set((s) => ({
         messages: s.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
       }));
+    const conversationId = selectedConversationId;
     // Optimistic update — the notes chat feels instant.
     apply({
       notesPinned: normalized.pinned,
       notesFolder: normalized.folder,
       notesTags: normalized.tags,
     });
+    setNotePinnedLocally(conversationId, messageId, normalized.pinned);
+    if (!normalized.pinned) {
+      set((s) => ({ pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId) }));
+    }
     try {
-      const wire = await encryptNotesMeta(normalized, selectedConversationId);
-      await messengerApi.updateNotesMeta(selectedConversationId, messageId, wire);
+      const wire = await encryptNotesMeta(normalized, conversationId);
+      await messengerApi.updateNotesMeta(conversationId, messageId, wire);
     } catch {
       // Revert on failure so the UI never shows state the server lacks.
       apply({
@@ -1384,6 +2038,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         notesFolder: original.notesFolder ?? null,
         notesTags: original.notesTags ?? [],
       });
+      setNotePinnedLocally(conversationId, messageId, Boolean(original.notesPinned));
       set({ error: "Не удалось сохранить настройки заметки" });
     }
   },
@@ -1396,6 +2051,46 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       folder: message.notesFolder ?? null,
       tags: message.notesTags ?? [],
     });
+  },
+
+  // ── Notes pinned strip ────────────────────────────────────────────────
+  // Pins live in the client-encrypted meta, so the server cannot list them. The
+  // device keeps the ids; this hydrates the ones beyond the loaded page with a
+  // single bounded request. Deleted/unpinned notes are pruned from the index.
+  loadPinnedNotes: async (conversationId) => {
+    const ids = readPinnedNoteIds(conversationId);
+    if (ids.length === 0) {
+      set({ pinnedNotes: [] });
+      return;
+    }
+
+    const loadedPinned = new Set(
+      get().selectedConversationId === conversationId
+        ? get().messages.filter((m) => m.notesPinned && !m.is_deleted).map((m) => m.id)
+        : [],
+    );
+    const missing = ids.filter((id) => !loadedPinned.has(id));
+    if (missing.length === 0) {
+      set({ pinnedNotes: [] });
+      return;
+    }
+
+    try {
+      const raw = await messengerApi.getMessagesByIds(conversationId, missing.slice(0, 50));
+      const decrypted = await decryptNotesMessages(conversationId, raw);
+      const view = decrypted.filter((m) => m.notesPinned && !m.is_deleted);
+      // A pinned id the server no longer returns (or that reports pinned=false)
+      // is stale — drop it from the device index for good.
+      const fresh = new Set(view.map((m) => m.id));
+      writePinnedNoteIds(
+        conversationId,
+        ids.filter((id) => !missing.includes(id) || fresh.has(id)),
+      );
+      if (get().selectedConversationId !== conversationId) return;
+      set({ pinnedNotes: view });
+    } catch {
+      // Best-effort: the strip simply shows the pins already in the page.
+    }
   },
 
   // ── Favorite → notes mirror (issue #509) ──────────────────────────────
@@ -1428,6 +2123,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         // Note created without organization meta — leave it visible.
       }
 
+      // Hash → id, so a later unfavorite is O(1) instead of a 200-page scan.
+      rememberFavoriteNoteId(content, msg.id);
+      if (meta.pinned) setNotePinnedLocally(convId, msg.id, true);
       set((s) => {
         // Only ever touch the OPEN conversation's list — never leak the note
         // into a different chat that happens to be selected.
@@ -1470,33 +2168,29 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         if (hit) messageId = hit.id;
       }
 
-      // Slow path: page through the notes conversation, decrypting as we go.
+      // O(1) path: the device remembered which note mirrored this favorite.
+      if (!messageId) messageId = readFavoriteNoteId(content);
+      // Fallback: a recently opened notes chat is already decrypted in memory.
+      // Neither path walks history — the old one paged up to 200 times.
       if (!messageId) {
-        let before: string | undefined;
-        for (let page = 0; page < 200; page += 1) {
-          const pageRaw = await messengerApi.getMessages(convId, before, undefined, 100);
-          if (pageRaw.length === 0) break;
-          for (const raw of pageRaw) {
-            if (raw.is_deleted) continue;
-            if ((await decryptNote(raw.content, convId)) === content) {
-              messageId = raw.id;
-              break;
-            }
-          }
-          if (messageId) break;
-          if (pageRaw.length < 100) break;
-          before = pageRaw[0].id;
-        }
+        const recent = readRecentMessages(get().me?.id ?? null, convId);
+        const hit = recent?.find((m) => !m.is_deleted && m.content === content);
+        if (hit) messageId = hit.id;
       }
       if (!messageId) return;
 
       await messengerApi.deleteMessage(convId, messageId);
+      forgetFavoriteNoteId(content);
+      setNotePinnedLocally(convId, messageId, false);
       set((s) => {
         if (s.selectedConversationId !== convId) return s;
+        const messages = s.messages.map((m) =>
+          m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
+        );
+        cacheCurrentMessages(s.me?.id ?? null, convId, messages);
         return {
-          messages: s.messages.map((m) =>
-            m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
-          ),
+          messages,
+          pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
         };
       });
     } catch {
@@ -1523,6 +2217,138 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
+  applyReadReceiptEvent: (event) => {
+    const { me } = get();
+    if (!event.conversation_id || !event.user_id) return;
+    if (me?.id && event.user_id === me.id) return;
+    const readAt = event.read_at || new Date().toISOString();
+
+    set((s) => {
+      // 1. Update conversation's other_last_read_at for the 1:1 list checkmark.
+      const conversations = s.conversations.map((c) => {
+        if (c.id !== event.conversation_id) return c;
+        if (c.other_last_read_at && Date.parse(c.other_last_read_at) > Date.parse(readAt)) {
+          return c;
+        }
+        return { ...c, other_last_read_at: readAt };
+      });
+
+      // 2. If this conversation is open, update receipts in O(1) for all messages up to message_id.
+      if (s.selectedConversationId !== event.conversation_id) {
+        return { conversations };
+      }
+
+      const targetMsg = s.messages.find((m) => m.id === event.message_id);
+      const cutoffMs = targetMsg ? Date.parse(targetMsg.sent_at) : Date.parse(readAt);
+      const existing = s.receipts.get(event.conversation_id) ?? [];
+      const byMsg = new Map<string, ReceiptRow>();
+      for (const r of existing) {
+        byMsg.set(`${r.message_id}:${r.user_id}`, r);
+      }
+
+      for (const m of s.messages) {
+        if (m.sender_user_id === event.user_id || m.is_deleted) continue;
+        if (Number.isFinite(cutoffMs) && Date.parse(m.sent_at) > cutoffMs && m.id !== event.message_id) {
+          continue;
+        }
+        const key = `${m.id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: m.id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? readAt,
+          read_at: prev?.read_at ?? readAt,
+        });
+      }
+      // Also ensure the explicit message_id has a receipt even if not in the current window
+      if (event.message_id) {
+        const key = `${event.message_id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: event.message_id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? readAt,
+          read_at: prev?.read_at ?? readAt,
+        });
+      }
+
+      const nextReceipts = new Map(s.receipts);
+      nextReceipts.set(event.conversation_id, [...byMsg.values()]);
+      return { conversations, receipts: nextReceipts };
+    });
+  },
+
+  applyDeliveryReceiptEvent: (event) => {
+    const { me } = get();
+    if (!event.conversation_id || !event.user_id) return;
+    if (me?.id && event.user_id === me.id) return;
+    const deliveredAt = event.delivered_at || new Date().toISOString();
+
+    set((s) => {
+      const conversations = s.conversations.map((c) => {
+        if (c.id !== event.conversation_id) return c;
+        if (c.other_last_delivered_at && Date.parse(c.other_last_delivered_at) > Date.parse(deliveredAt)) {
+          return c;
+        }
+        return { ...c, other_last_delivered_at: deliveredAt };
+      });
+
+      if (s.selectedConversationId !== event.conversation_id) {
+        return { conversations };
+      }
+
+      const targetMsg = s.messages.find((m) => m.id === event.message_id);
+      const cutoffMs = targetMsg ? Date.parse(targetMsg.sent_at) : Date.parse(deliveredAt);
+      const existing = s.receipts.get(event.conversation_id) ?? [];
+      const byMsg = new Map<string, ReceiptRow>();
+      for (const r of existing) {
+        byMsg.set(`${r.message_id}:${r.user_id}`, r);
+      }
+
+      for (const m of s.messages) {
+        if (m.sender_user_id === event.user_id || m.is_deleted) continue;
+        if (Number.isFinite(cutoffMs) && Date.parse(m.sent_at) > cutoffMs && m.id !== event.message_id) {
+          continue;
+        }
+        const key = `${m.id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: m.id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? deliveredAt,
+          read_at: prev?.read_at ?? null,
+        });
+      }
+      if (event.message_id) {
+        const key = `${event.message_id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: event.message_id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? deliveredAt,
+          read_at: prev?.read_at ?? null,
+        });
+      }
+
+      const nextReceipts = new Map(s.receipts);
+      nextReceipts.set(event.conversation_id, [...byMsg.values()]);
+      return { conversations, receipts: nextReceipts };
+    });
+  },
+
+  applyConversationUpdatedEvent: (event) => {
+    if (!event.conversation_id) return;
+    // Both cases need the authoritative snapshot: the encryption mode is
+    // security-relevant, and a preview change carries ciphertext the device
+    // must decrypt (an event payload would leak the server's stored blob into
+    // the list). One refetch covers either.
+    const securityRelevant =
+      event.encryption_mode === "server" || event.encryption_mode === "e2e";
+    if (securityRelevant || event.preview_changed) {
+      void get().loadConversations({ force: true });
+    }
+  },
+
   // ── Local actions ─────────────────────────────────────────────────────
   selectConversation: (id) => {
     // Invalidate in-flight cache/network responses before switching so a slow
@@ -1536,13 +2362,17 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const openingUnreadCount = id
       ? get().conversations.find((conversation) => conversation.id === id)?.unread_count ?? 0
       : 0;
+    // Recent chats paint in this very commit: no skeleton, no empty frame.
+    // The network refresh below stays authoritative and replaces this snapshot.
+    const warm = id ? readRecentMessages(get().me?.id ?? null, id) : null;
     set({
       selectedConversationId: id,
       openingUnreadCount,
-      messages: [],
+      messages: warm ?? [],
+      pinnedNotes: [],
       hasMoreMessages: true,
       isLoadingMore: false,
-      isMessagesLoading: !!id,
+      isMessagesLoading: !warm && !!id,
       conversations: get().conversations.map((conversation) =>
         conversation.id === id ? { ...conversation, unread_count: 0 } : conversation,
       ),
@@ -1556,6 +2386,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   setError: (error) => set({ error }),
 
   addMessage: (message) => {
+    // A deleted message must never come back: not from a stale cache, not from
+    // an echo that was already in flight when the reader deleted it.
+    if (message.is_deleted || deletedJournal().has(message.id)) return;
+    if (message.client_id && cancelledSends.has(message.client_id)) return;
     const apply = (finalMessage: MessageView) => {
       set((s) => {
         // Dedup
@@ -1572,7 +2406,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       });
     };
     if (!notesConversationExists(message.conversation_id)) {
-      apply(message);
+      if (!e2eConversationExists(message.conversation_id)) {
+        apply(message);
+        return;
+      }
+      // E2E WS payloads carry opaque ciphertext — decrypt before showing.
+      void (async () => {
+        if (!message.content || !parseE2EEnvelope(message.content)) {
+          apply(message);
+          return;
+        }
+        const conv = get().conversations.find((c) => c.id === message.conversation_id);
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        const content = peerKey
+          ? (await decryptE2EMessage(message.content, peerKey, message.conversation_id, message.sender_user_id)) ?? E2E_LOCKED
+          : E2E_LOCKED;
+        apply({ ...message, content });
+      })();
       return;
     }
     // Notes WS payloads carry the client ciphertext — decrypt before showing.
@@ -1630,16 +2480,43 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         return;
       }
     }
+    if (conversationId && e2eConversationExists(conversationId) && content !== undefined) {
+      // WS edit events for E2E chats carry opaque ciphertext — decrypt first.
+      void (async () => {
+        if (!parseE2EEnvelope(content)) {
+          apply(updates);
+          return;
+        }
+        const target = get().messages.find((m) => m.id === id);
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        const senderId = target?.sender_user_id ?? "";
+        const decrypted = peerKey ? await decryptE2EMessage(content, peerKey, conversationId, senderId) : null;
+        apply({ ...updates, content: decrypted ?? E2E_LOCKED });
+      })();
+      return;
+    }
     apply(updates);
   },
 
   removeMessage: (id) => {
-    set((s) => {
-      const messages = s.messages.map((m) => (m.id === id ? { ...m, is_deleted: true, content: "" } : m));
-      const changed = messages.some((m, index) => m !== s.messages[index]);
-      if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
-      return { messages };
-    });
+    // A message deleted anywhere is deleted everywhere: the id is journaled so
+    // no local cache (LRU or IndexedDB) can paint it again.
+    rememberDeletedMessage(id);
+    const target = get().messages.find((m) => m.id === id);
+    if (target && target.conversation_id === get().selectedConversationId) {
+      // The peer deleted it: the bubble breaks apart here too, then the row
+      // leaves. A local delete already owns the timer — never restart it.
+      if (!target.deleting) {
+        setNotePinnedLocally(target.conversation_id, id, false);
+        markMessageDeleting(target.conversation_id, id);
+        scheduleDeleteFinalize(target.conversation_id, id);
+      }
+      return;
+    }
+    // Not the open chat: the server's `preview_changed` refresh owns the list
+    // line; only the pinned strip needs an immediate answer.
+    set((s) => ({ pinnedNotes: s.pinnedNotes.filter((m) => m.id !== id) }));
   },
 
   setTyping: (userId, username, isTyping) => {
@@ -1672,6 +2549,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   setUserPresence: (userId, online, lastSeen) => {
     set((s) => {
+      // A blocked pair hides presence server-side. An online delta for such a
+      // peer is stale by definition: ignore it completely (not even the
+      // global online set).
+      const presenceHidden = s.conversations.some(
+        (c) => !c.is_group && !c.is_notes && c.other_user_id === userId && c.presence_hidden,
+      );
+      if (presenceHidden && online) return s;
       const onlineUsers = new Set(s.onlineUsers);
       if (online) onlineUsers.add(userId);
       else onlineUsers.delete(userId);
@@ -1680,6 +2564,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // the REST-loaded conversation) instead of stamping the arrival time.
       const conversations = s.conversations.map((c) => {
         if (c.is_group || c.is_notes || c.other_user_id !== userId) return c;
+        // A blocked pair hides presence on the server; a live "online" delta
+        // must not resurrect the dot or the header status.
+        if (c.presence_hidden && online) return c;
         return {
           ...c,
           other_is_online: online,
@@ -1688,6 +2575,49 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       });
       return { onlineUsers, conversations };
     });
+  },
+
+  setConversationMuted: (conversationId, muted) => {
+    set((s) => ({
+      conversations: s.conversations.map((conversation) =>
+        conversation.id === conversationId ? { ...conversation, is_muted: muted } : conversation,
+      ),
+    }));
+  },
+
+  setConversationBlockedByMe: (conversationId, blocked) => {
+    // As in Telegram, blocking changes nothing about what the blocker sees of
+    // the peer: their avatar, history and real presence stay exactly as they
+    // were. Only the composer becomes the unblock panel.
+    set((s) => ({
+      conversations: s.conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, blocked_by_me: blocked }
+          : conversation,
+      ),
+    }));
+  },
+
+  applyPeerBlocked: (conversationId) => {
+    if (!conversationId) return;
+    const ownerId = get().me?.id ?? "";
+    // Local traces go too: the in-memory LRU, the IndexedDB page and any
+    // queued sends for this chat. The peer's content must not survive in a
+    // cache the blocked viewer can still open.
+    recentMessages.delete(recentKey(ownerId || null, conversationId));
+    void deleteCachedMessages(ownerId, conversationId);
+    if (ownerId) {
+      void listOutbox(ownerId).then((entries) => {
+        for (const entry of entries) {
+          if (entry.conversationId === conversationId) void deleteOutbox(entry.key);
+        }
+      });
+    }
+    set((s) =>
+      s.selectedConversationId === conversationId
+        ? { messages: [], hasMoreMessages: false, pinnedNotes: [] }
+        : s,
+    );
   },
 
   updateConversationFromWs: (convId, updates, incrementUnread = false) => {

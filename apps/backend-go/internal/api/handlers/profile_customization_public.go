@@ -5,9 +5,11 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 )
@@ -44,6 +46,26 @@ func (h *ProfilesHandler) GetUserCustomization(c *gin.Context) {
 	}
 	if _, err := uuid.Parse(userID); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user_id"))
+		return
+	}
+
+	// A block held by the profile owner erases the whole appearance: the badge,
+	// nickname styling and especially the background image must not leak to the
+	// blocked viewer. Answered as "nothing customized" (the same null payload the
+	// frontend already handles), not as an error.
+	var viewerID string
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+	blocked, err := privacy.BlockedBy(h.db, userID, viewerID)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if blocked {
+		c.JSON(http.StatusOK, models.SuccessResponse(json.RawMessage("null")))
 		return
 	}
 

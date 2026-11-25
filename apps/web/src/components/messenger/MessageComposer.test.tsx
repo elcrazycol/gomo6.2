@@ -47,6 +47,7 @@ vi.mock("@/components/GomoRichEditor", () => {
           minHeightClassName,
           maxHeightClassName,
           showToolbar,
+          showSelectionToolbar,
           toolbarClassName,
         }: any,
         ref: any
@@ -86,6 +87,7 @@ vi.mock("@/components/GomoRichEditor", () => {
             data-min-height={minHeightClassName}
             data-max-height={maxHeightClassName}
             data-show-toolbar={showToolbar ? "true" : "false"}
+            data-selection-toolbar={showSelectionToolbar ? "true" : "false"}
             data-toolbar-class={toolbarClassName ?? ""}
             data-reset-key={resetKey}
           >
@@ -261,7 +263,9 @@ describe("MessageComposer", () => {
     const { textarea, sendButton } = setup();
     expect(textarea).toBeInTheDocument();
     expect(sendButton).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
+    // No article-editor toggle: formatting lives in the selection bubble.
+    expect(screen.queryByRole("button", { name: "Развернуть компоузер" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-selection-toolbar", "true");
     // The editor is always at the full input height — no collapsed pill.
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
@@ -305,7 +309,6 @@ describe("MessageComposer", () => {
 
   it("desktop: the paperclip opens the native picker directly, no attach sheet", () => {
     const { container } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
@@ -316,7 +319,6 @@ describe("MessageComposer", () => {
   it("touch: the paperclip opens the attach sheet in the keyboard slot (no native picker)", () => {
     mockMobileKeyboard.isTouch = true;
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true; // the shared keyboard slot came up
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
@@ -328,7 +330,6 @@ describe("MessageComposer", () => {
   it("touch: an attach option reconfigures the hidden input; window focus ends the session and returns the keyboard", () => {
     mockMobileKeyboard.isTouch = true;
     const { container } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -346,7 +347,6 @@ describe("MessageComposer", () => {
   it("touch: re-tapping the paperclip closes the sheet and returns the keyboard", () => {
     mockMobileKeyboard.isTouch = true;
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
@@ -360,7 +360,6 @@ describe("MessageComposer", () => {
   it("touch: tapping outside the attach sheet closes it WITHOUT the keyboard", () => {
     mockMobileKeyboard.isTouch = true;
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     const sheet = screen.getByTestId("attach-sheet");
@@ -381,7 +380,6 @@ describe("MessageComposer", () => {
   it("touch: tapping the editor does NOT close the attach sheet via the outside handler (the tap's own focus owns it)", () => {
     mockMobileKeyboard.isTouch = true;
     const { textarea } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     const sheet = screen.getByTestId("attach-sheet");
@@ -402,7 +400,6 @@ describe("MessageComposer", () => {
   it("touch: Escape closes the attach sheet WITHOUT the keyboard", () => {
     mockMobileKeyboard.isTouch = true;
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     fireEvent.keyDown(document, { key: "Escape" });
@@ -413,7 +410,6 @@ describe("MessageComposer", () => {
   it("touch: the paperclip switches the open slot from the emoji panel to the attach sheet", () => {
     mockMobileKeyboard.isTouch = true;
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
     mockEmojiSwap.open = true;
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
@@ -428,7 +424,7 @@ describe("MessageComposer", () => {
     // The keyboard was up with the iOS URL bar expanded: the full slot delta
     // (innerHeight − visualViewport.height) exceeds the keyboard's own height.
     mockMobileKeyboard.viewportHeight = window.innerHeight - 360; // delta = 360
-    const { container } = render(
+    const { container, rerender } = render(
       <div className="chat-panel">
         <MessageComposer
           draft=""
@@ -441,13 +437,18 @@ describe("MessageComposer", () => {
     );
     const panel = container.querySelector(".chat-panel") as HTMLElement;
     const textarea = screen.getByPlaceholderText("Напиши сообщение...") as HTMLTextAreaElement;
-    // A state-changing poke forces a re-render so the lift effect re-runs with
-    // the mutated mock values (each fireEvent flushes effects).
-    const poke = () => {
-      const expand = screen.queryByRole("button", { name: "Развернуть компоузер" });
-      const collapse = screen.queryByRole("button", { name: "Свернуть компоузер" });
-      fireEvent.click((expand ?? collapse)!);
-    };
+    // Re-render so the lift effect sees the mutated keyboard mock values.
+    const poke = () => rerender(
+      <div className="chat-panel">
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+        />
+      </div>,
+    );
     // Open the sheet: the lift freezes at the FULL slot (360), not the
     // keyboard height (300) — otherwise the panel would get less space than
     // the keyboard and the composer would sit a hair low.
@@ -476,9 +477,9 @@ describe("MessageComposer", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
-    // The paperclip is always available; the chevron toggle opens formatting.
+    // The paperclip is always available; no formatting row above the field.
     expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Развернуть компоузер" })).not.toBeInTheDocument();
   });
 
   it("stays at the full input height after blur (no collapsing animation)", () => {
@@ -639,49 +640,15 @@ describe("MessageComposer", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
   });
 
-  it("formatting panel: hugging toolbar with a fullscreen button, paperclip always present", async () => {
-    const { textarea } = setup({ draft: "Hello" });
-    const toggle = screen.getByRole("button", { name: "Развернуть компоузер" });
-
-    // The paperclip lives on the left of the input at all times.
+  it("has no article editor, formatting row or fullscreen shell", () => {
+    const { container } = setup({ draft: "Hello" });
+    // Telegram's composer: paperclip, field with emoji, mic/send. Nothing else.
+    expect(container.querySelector(".composer-panel-row")).not.toBeInTheDocument();
+    expect(container.querySelector(".composer-fs-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "На весь экран" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("external-toolbar")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
-
-    await userEvent.click(toggle);
-    // The formatting panel (external toolbar) appears above the input pill.
-    expect(screen.getByTestId("external-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("external-toolbar")).toHaveAttribute("data-editor", "yes");
-    // The chevron flips to "close"…
-    expect(screen.getByRole("button", { name: "Свернуть компоузер" })).toBeInTheDocument();
-    // …and a fullscreen button sits apart at the toolbar's right.
-    expect(screen.getByRole("button", { name: "На весь экран" })).toBeInTheDocument();
-    // The toolbar is rendered outside the editor; the editor grows taller.
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-show-toolbar", "false");
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-[45vh] overflow-y-auto overscroll-contain");
-
-    // Expanded composer never collapses back to the one-line pill.
-    fireEvent.blur(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
-
-    // Closing via the chevron: the toolbar leaves, the paperclip stays.
-    await userEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
-    await waitFor(() => expect(screen.queryByTestId("external-toolbar")).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
-  });
-
-  it("fullscreen: expands into an overlay with a header, then restores", async () => {
-    setup({ draft: "Hello" });
-    await userEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-    await userEvent.click(screen.getByRole("button", { name: "На весь экран" }));
-
-    // Overlay header is present and the editor fills the area.
-    expect(screen.getByRole("button", { name: "Закрыть полноэкранный режим" })).toBeInTheDocument();
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[240px]");
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-none");
-
-    await userEvent.click(screen.getByRole("button", { name: "Свернуть" }));
-    expect(screen.queryByRole("button", { name: "Закрыть полноэкранный режим" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-[128px] overflow-y-auto overscroll-contain");
   });
 
   describe("emoji panel ↔ keyboard", () => {
@@ -1012,7 +979,7 @@ describe("MessageComposer", () => {
       mockMobileKeyboard.keyboardInset = 340; // the keyboard is really up
       mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       mockEmojiSwap.height = 340;
-      const { container } = render(
+      const { container, rerender } = render(
         <div className="chat-panel">
           <MessageComposer
             draft=""
@@ -1024,14 +991,22 @@ describe("MessageComposer", () => {
         </div>,
       );
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
-      // The paperclip only lives in the expanded (full) composer.
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
       fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
       // The swap opens (the mock's toggle is a no-op — flip it like the real
       // hook does): the layout effect freezes the lift before paint, so the
       // composer never flashes at the bottom for a frame.
       mockEmojiSwap.open = true;
-      fireEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
       // The engine then reports the keyboard closed early (Firefox), with the
       // keyboard still visually collapsing — the frozen lift holds the
@@ -1078,8 +1053,7 @@ describe("MessageComposer", () => {
       // Tap the attach trigger: nothing is written synchronously — the freeze
       // lands with the swap open (layout effect), measured from the 340
       // shrink (the vv-delta reads 0 in this engine).
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+        fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
       // The swap's open flip lands after the tap (the mock's toggle is a
       // no-op — flip it like the real hook does, then let the open branch run).
@@ -1157,8 +1131,7 @@ describe("MessageComposer", () => {
       // Keyboard up: window collapsed by 340.
       Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
       mockMobileKeyboard.viewportHeight = window.innerHeight;
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+        fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 400;
       rerenderPanel();
@@ -1233,8 +1206,7 @@ describe("MessageComposer", () => {
       // Keyboard up: window collapsed by 340, sheet opens over the slot.
       Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
       mockMobileKeyboard.viewportHeight = window.innerHeight;
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+        fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 400;
       rerenderPanel();
@@ -1297,8 +1269,7 @@ describe("MessageComposer", () => {
             <input data-testid="kb-return" />
           </div>,
         );
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-      mockEmojiSwap.open = true;
+        mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       rerenderPanel();
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
@@ -1370,8 +1341,7 @@ describe("MessageComposer", () => {
       // Sheet opens over the (window-collapse) keyboard: window collapsed by 340.
       Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
       mockMobileKeyboard.viewportHeight = window.innerHeight;
-      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
-      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+        fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 400;
       rerenderPanel();
@@ -1536,6 +1506,32 @@ describe("MessageComposer", () => {
   });
 
   describe("reply banner", () => {
+    it("caps a long reply preview to one ellipsized line with the author prefix", () => {
+      const long = "Не удалось загрузить страницу. Возможно, приложение обновилось или соединение прервалось. ".repeat(4);
+      const { container } = render(
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+          replyToMessage={{ id: "m1", content: long, is_deleted: false } as any}
+          replySenderLabel="Собеседник"
+          onCancelReply={vi.fn()}
+        />,
+      );
+      const banner = container.querySelector(".composer-reply-banner") as HTMLElement;
+      expect(banner).toBeInTheDocument();
+      // The author and the preview are separate flex children: the label is a
+      // capped prefix, the preview carries the ellipsis (`min-width: 0` — a
+      // nowrap flex child without it widened the whole composer).
+      expect(banner.querySelector(".reply-label")).toHaveTextContent("Собеседник");
+      const preview = banner.querySelector(".reply-text") as HTMLElement;
+      expect(preview.textContent!.length).toBeLessThanOrEqual(121);
+      expect(preview.textContent!.endsWith("…")).toBe(true);
+      expect(banner.querySelector(".composer-reply-cancel")).toBeInTheDocument();
+    });
+
     it("dismissing the reply keeps the composer focused (the X must not steal focus)", () => {
       const onCancelReply = vi.fn();
       render(

@@ -70,7 +70,13 @@ func boardVisible(boardExpr, viewerArg string) string {
 // where appropriate.
 func VisibleCondition(alias, viewerArg string) string {
 	owner := alias + ".user_id"
+	// A block held by the owner erases their stories for the blocked viewer:
+	// the profile is gone, and a live ring/slide would leak the same content.
+	// Gosub stories have no user owner (NULL), where the predicate is a no-op.
+	blocked := `NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = ` + owner + ` AND b.blocked_id = ` + viewerArg + `::uuid)`
 	return `(
+		` + blocked + `
+		AND (
 		` + alias + `.user_id = ` + viewerArg + `::uuid
 		OR ` + alias + `.author_id = ` + viewerArg + `::uuid
 		OR (` + alias + `.owner_type = 'gosub' AND ` + boardVisible(alias+".board_id", viewerArg) + `)
@@ -82,7 +88,7 @@ func VisibleCondition(alias, viewerArg string) string {
 				WHERE scf.owner_id = ` + owner + ` AND scf.friend_id = ` + viewerArg + `::uuid
 			))
 		))
-	)`
+	))`
 }
 
 var userProfileVisibleQuery = `
@@ -91,6 +97,7 @@ SELECT EXISTS (
 	WHERE u.id::text = $2::text
 	  AND (u.id::text = $1::text
 	       OR ` + viewerCanSeeProfile("u.id", "$1") + `)
+	  AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = u.id AND b.blocked_id = $1::uuid)
 )`
 
 // CanViewUserStories reports whether viewerID may see any personal story of

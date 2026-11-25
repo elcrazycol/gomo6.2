@@ -15,6 +15,8 @@ const { mockStore } = vi.hoisted(() => {
       typingUsers: {},
       conversations: [] as any[],
       me: null,
+      error: null as string | null,
+      setError: vi.fn(),
     },
   };
 });
@@ -41,6 +43,10 @@ vi.mock("@/stores/messengerStore", () => ({
   }),
   selectSelectedConversation: (s: any) =>
     s.conversations.find((c: any) => c.id === s.selectedConversationId) ?? null,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 vi.mock("@/services/messengerWebSocket", () => ({
@@ -103,6 +109,7 @@ beforeEach(() => {
   mockStore.isInitialLoading = false;
   mockStore.selectedConversationId = null;
   mockStore.conversations = [];
+  mockStore.error = null;
   mockSearchParams.delete("conversation");
   mockSearchParams.delete("user");
   mockWs.connect.mockResolvedValue(undefined);
@@ -241,6 +248,34 @@ describe("MessengerView", () => {
     });
   });
 
+  it("opens the chat panel from a ?conversation= deep link on mobile", async () => {
+    (globalThis as any).__origMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width: 980px"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    mockStore.conversations = [mockConversation()];
+    mockStore.selectConversation.mockImplementation((id: string) => {
+      mockStore.selectedConversationId = id;
+    });
+    mockSearchParams.set("conversation", "conv-1");
+    render(<MessengerView />);
+
+    await waitFor(() => {
+      expect(mockStore.selectConversation).toHaveBeenCalledWith("conv-1");
+      // The URL selects the conversation directly (no list tap), so the panel
+      // has to leave the sidebar state behind — otherwise the list stays up.
+      expect(document.body.classList.contains("messenger-mobile-chat-active")).toBe(true);
+    });
+  });
+
   it("adds the messenger-mobile-chat-active body class when a chat is open on mobile", async () => {
     // Force mobile via matchMedia polyfill override
     (globalThis as any).__origMatchMedia = window.matchMedia;
@@ -342,6 +377,17 @@ describe("MessengerView", () => {
       mockStore.conversations = [mockConversation()];
       render(<MessengerView />);
       expect(screen.getByTestId("chat-view")).toBeInTheDocument();
+    });
+  });
+
+  it("turns a messenger error into a toast and clears the slot", async () => {
+    const { toast } = await import("sonner");
+    mockStore.error = "Не удалось отправить сообщение";
+    render(<MessengerView />);
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Не удалось отправить сообщение");
+      expect(mockStore.setError).toHaveBeenCalledWith(null);
     });
   });
 });

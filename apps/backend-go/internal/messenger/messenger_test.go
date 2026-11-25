@@ -1,6 +1,7 @@
 package messenger
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -75,7 +76,107 @@ func stripJSONArray(body []byte) ([]interface{}, error) {
 	return resp.Data.([]interface{}), nil
 }
 
+// ─── Phase-3 test helpers ────────────────────────────────────────────────────
+
+// expectConversationAccess mocks the single access query that answers
+// membership + conversation kind + encryption mode + the 1:1 peer.
+func expectConversationAccess(mock sqlmock.Sqlmock, convID, userID, otherUser string, isGroup, isNotes, isService bool, mode string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, isGroup, isNotes, isService, mode, otherUser, false))
+}
+
+// expectConversationAccessPeerBlocked mocks the access query for a 1:1 chat
+// whose peer blocked the caller (history/media/sends are erased).
+func expectConversationAccessPeerBlocked(mock sqlmock.Sqlmock, convID, userID, otherUser string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, false, false, false, "server", otherUser, true))
+}
+
+// expectConversationAccessError mocks a failing access lookup.
+func expectConversationAccessError(mock sqlmock.Sqlmock, convID, userID string, err error) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnError(err)
+}
+
+// expectNoConversationAccess mocks the access query for a non-member: the row is
+// visible but the explicit membership predicate is false.
+func expectNoConversationAccess(mock sqlmock.Sqlmock, convID, userID string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, false, false, false, false, "server", "", false))
+}
+
+// expectMessageExtras mocks the single extras query (attachments + reactions +
+// voice listens) with empty JSON arrays.
+func expectMessageExtras(mock sqlmock.Sqlmock, ids ...driver.Value) {
+	mock.ExpectQuery(`SELECT\s+COALESCE\(\(`).
+		WithArgs(ids...).
+		WillReturnRows(sqlmock.NewRows([]string{"attachments", "reactions", "voice"}).
+			AddRow([]byte("[]"), []byte("[]"), []byte("[]")))
+}
+
+// expectMessageExtrasJSON mocks the extras query with explicit JSON payloads.
+func expectMessageExtrasJSON(mock sqlmock.Sqlmock, attachments, reactions, voice string, ids ...driver.Value) {
+	mock.ExpectQuery(`SELECT\s+COALESCE\(\(`).
+		WithArgs(ids...).
+		WillReturnRows(sqlmock.NewRows([]string{"attachments", "reactions", "voice"}).
+			AddRow([]byte(attachments), []byte(reactions), []byte(voice)))
+}
+
+// expectDirectMessageAllowed mocks the 1:1 write gate as allowed.
+func expectDirectMessageAllowed(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(false, false, true))
+}
+
+// expectDirectMessageBlocked mocks the 1:1 write gate as blocked.
+func expectDirectMessageBlocked(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(true, false, true))
+}
+
+// expectDirectMessageFriendsOnly mocks a friends-only inbox for a non-friend.
+func expectDirectMessageFriendsOnly(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(false, false, false))
+}
+
+// insertMessageRowColumns is the RETURNING projection of a message insert
+// (no sender_username join).
+var insertMessageRowColumns = []string{
+	"event_id", "id", "conversation_id", "sender_user_id", "parent_message_id",
+	"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
+	"edited_at", "sent_at", "client_id",
+}
+
+// expectMessageRowColumns is the shared column list of a chat_messages page row.
+var messageRowColumns = []string{
+	"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
+	"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
+	"edited_at", "sent_at", "client_id",
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+// expectServiceConversationAccess mocks the access query for a service thread.
+func expectServiceConversationAccess(mock sqlmock.Sqlmock, convID, userID string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, false, false, true, "server", "", false))
+}
 
 func TestGetClaims_Valid(t *testing.T) {
 	_, _ = setupMessengerHandler(t)
@@ -144,6 +245,8 @@ func TestSanitizeContent(t *testing.T) {
 		{"html script", "<script>alert('xss')</script>", false, ""},
 		{"html img", "hello<img src=x>", false, ""},
 		{"html entity ok", "hello &amp; world", true, "hello &amp; world"},
+		{"math comparisons ok", "a < b && c > d", true, "a < b && c > d"},
+		{"heart emoticon ok", "<3", true, "<3"},
 	}
 
 	for _, tt := range tests {
@@ -176,6 +279,8 @@ func TestHasHTML(t *testing.T) {
 		{"just text", false},
 		{"<img src=x>", true},
 		{"hello &amp; goodbye", false},
+		{"a < b && c > d", false},
+		{"<3", false},
 		{"", false},
 	}
 
@@ -185,6 +290,51 @@ func TestHasHTML(t *testing.T) {
 				t.Errorf("hasHTML(%q) = %v, want %v", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNormalizeMessageEnvelope(t *testing.T) {
+	giftMsg := MessageResponse{Content: "__GIFT__:g-1:Роза:/gift.png"}
+	normalizeMessageEnvelope(&giftMsg)
+	if giftMsg.Type != "gift" {
+		t.Fatalf("expected type=gift, got %q", giftMsg.Type)
+	}
+	if len(giftMsg.Payload) == 0 {
+		t.Fatal("expected gift payload to be populated")
+	}
+
+	shareMsg := MessageResponse{Content: "__SHARE__:thread:t-42"}
+	normalizeMessageEnvelope(&shareMsg)
+	if shareMsg.Type != "share" {
+		t.Fatalf("expected type=share, got %q", shareMsg.Type)
+	}
+	if len(shareMsg.Payload) == 0 {
+		t.Fatal("expected share payload to be populated")
+	}
+
+	voiceMeta := `{"voice":true,"duration":4.2,"waveform":[10,20,30]}`
+	voiceMsg := MessageResponse{
+		Content:     "",
+		Attachments: []Attachment{{Type: "audio", Meta: &voiceMeta}},
+	}
+	normalizeMessageEnvelope(&voiceMsg)
+	if voiceMsg.Type != "voice" {
+		t.Fatalf("expected type=voice, got %q", voiceMsg.Type)
+	}
+
+	mediaMsg := MessageResponse{
+		Content:     "",
+		Attachments: []Attachment{{Type: "image", URL: "u1/messenger/img.jpg"}},
+	}
+	normalizeMessageEnvelope(&mediaMsg)
+	if mediaMsg.Type != "media" {
+		t.Fatalf("expected type=media, got %q", mediaMsg.Type)
+	}
+
+	textMsg := MessageResponse{Content: "hello"}
+	normalizeMessageEnvelope(&textMsg)
+	if textMsg.Type != "text" {
+		t.Fatalf("expected type=text, got %q", textMsg.Type)
 	}
 }
 
@@ -237,5 +387,37 @@ func TestEncryptDecrypt_NoKey(t *testing.T) {
 	_, err = crypto.Decrypt(nil, "somedata")
 	if err == nil {
 		t.Error("crypto.Decrypt without key should return error")
+	}
+}
+
+func TestAttachmentPreviewLabel(t *testing.T) {
+	image := AttachmentInput{Type: "image", URL: "u/a.jpg", Name: "a.jpg"}
+	image2 := AttachmentInput{Type: "image", URL: "u/b.jpg", Name: "b.jpg"}
+	video := AttachmentInput{Type: "video", URL: "u/a.mp4", Name: "a.mp4"}
+	voiceMeta := `{"voice":true,"duration":3}`
+	voice := AttachmentInput{Type: "audio", URL: "u/v.weba", Name: "v.weba", Meta: &voiceMeta}
+	audio := AttachmentInput{Type: "audio", URL: "u/a.mp3", Name: "a.mp3"}
+	file := AttachmentInput{Type: "file", URL: "u/a.pdf", Name: "a.pdf"}
+
+	cases := []struct {
+		name        string
+		attachments []AttachmentInput
+		want        string
+	}{
+		{"empty", nil, ""},
+		{"single photo", []AttachmentInput{image}, "📷 Фото"},
+		{"photo album", []AttachmentInput{image, image2}, "📷 2 фото"},
+		{"video", []AttachmentInput{video}, "🎬 Видео"},
+		{"voice", []AttachmentInput{voice}, "Голосовое сообщение"},
+		{"audio", []AttachmentInput{audio}, "🎵 Аудио"},
+		{"file", []AttachmentInput{file}, "📎 Файл"},
+		{"mixed", []AttachmentInput{image, file}, "📎 2 файла"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := attachmentPreviewLabel(tc.attachments); got != tc.want {
+				t.Fatalf("attachmentPreviewLabel() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

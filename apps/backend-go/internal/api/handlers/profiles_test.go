@@ -35,26 +35,28 @@ const (
 // follows it. ids with no privacy_settings row are public defaults.
 
 const (
-	privacyBatchSettingsRe = `SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`
+	privacyBatchSettingsRe = `SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`
 	privacyBatchFriendsRe  = `SELECT user1_id::text, user2_id::text FROM friendships`
 )
 
 // privacyBatchRow is one privacy_settings row as the profile list reads it.
 type privacyBatchRow struct {
-	id         string
-	private    bool
-	hideAvatar bool
-	hideStats  bool
+	id          string
+	private     bool
+	hideAvatar  bool
+	hideStats   bool
+	blocked     bool
+	blockedByMe bool
 }
 
 // expectPrivacyBatch expects the batched privacy_settings read, returning one
 // row per privacyBatchRow. It does not expect the friendships read.
 func expectPrivacyBatch(mock sqlmock.Sqlmock, rows ...privacyBatchRow) {
-	set := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
+	set := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"})
 	for _, r := range rows {
-		set.AddRow(r.id, r.private, r.hideAvatar, r.hideStats)
+		set.AddRow(r.id, r.private, r.hideAvatar, r.hideStats, r.blocked, r.blockedByMe)
 	}
-	mock.ExpectQuery(privacyBatchSettingsRe).WithArgs(sqlmock.AnyArg()).WillReturnRows(set)
+	mock.ExpectQuery(privacyBatchSettingsRe).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(set)
 }
 
 // expectMutualFriends expects the batched friendships read, returning the given
@@ -1198,5 +1200,121 @@ func TestGetProfiles_PublicIDFilterInvalid(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetProfiles_BlockedByTargetErasesProfile guards Telegram's "empty
+// account" rule: when the profile owner blocked the viewer, the row keeps only
+// the identity, presence reads «был(а) давно», and content_hidden tells the UI
+// to render the empty state — with no hint about a block.
+func TestGetProfiles_BlockedByTargetErasesProfile(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/profiles?id=eq.u1", map[string]string{
+		"id": "eq.u1",
+	}, &auth.Claims{UserID: "viewer"})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "public_id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
+		"is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous", "is_service",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
+	}).AddRow("u1", 42, "alice", "Alice", "emoji-1", "alice@example.com", "localhost:8080",
+		"alice.png", false, "bio text", nil, 100, 10, 2, 3, 7, 25, 5, 777,
+		true, time.Now(), time.Now(), false, false, false,
+		"bg.png", "page", true, []byte(`{"--primary":"1 2% 3%"}`),
+	)
+
+	mock.ExpectQuery(`SELECT u\.id, u\.public_id, u\.username.*FROM users.*WHERE u\.id = \$1.*LIMIT \$2 OFFSET \$3`).
+		WithArgs("u1", 50, 0).
+		WillReturnRows(rows)
+
+	expectPrivacyBatch(mock, privacyBatchRow{id: "u1", blocked: true})
+
+	handler.GetProfiles(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	profiles, ok := resp.Data.([]interface{})
+	if !ok || len(profiles) != 1 {
+		t.Fatalf("expected 1 profile, got %#v", resp.Data)
+	}
+	p := profiles[0].(map[string]interface{})
+
+	if p["content_hidden"] != true {
+		t.Fatalf("expected content_hidden=true, got %v", p["content_hidden"])
+	}
+	if p["blocked_by_me"] == true {
+		t.Fatal("the blocked side must never receive blocked_by_me")
+	}
+	if p["avatar_url"] != nil || p["background_url"] != nil || p["bio"] != nil {
+		t.Fatalf("visual fields must be stripped: %#v", p)
+	}
+	if p["garma"] != nil || p["thread_count"] != nil || p["post_count"] != nil {
+		t.Fatalf("counters must be stripped: %#v", p)
+	}
+	if p["is_online"] != false {
+		t.Fatalf("presence must be offline, got %v", p["is_online"])
+	}
+	seenRaw, _ := p["last_seen"].(string)
+	seen, err := time.Parse(time.RFC3339, seenRaw)
+	if err != nil {
+		t.Fatalf("last_seen must be RFC3339, got %q", seenRaw)
+	}
+	if time.Since(seen) < 7*24*time.Hour {
+		t.Fatalf("last_seen must be old enough for «был(а) давно», got %s", seenRaw)
+	}
+	if p["username"] != "alice" || p["display_name"] != "Alice" {
+		t.Fatalf("identity must survive, got %#v", p)
+	}
+}
+
+// TestGetProfiles_BlockerStillSeesTarget keeps the Telegram direction: the
+// blocker keeps the full profile and only learns blocked_by_me (the messenger
+// uses it for the unblock panel).
+func TestGetProfiles_BlockerStillSeesTarget(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/profiles?id=eq.u1", map[string]string{
+		"id": "eq.u1",
+	}, &auth.Claims{UserID: "viewer"})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "public_id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
+		"is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous", "is_service",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
+	}).AddRow("u1", 42, "alice", "Alice", nil, "alice@example.com", "localhost:8080",
+		"alice.png", false, "bio text", nil, 100, 10, 2, 3, 7, 25, 5, 777,
+		true, time.Now(), time.Now(), false, false, false,
+		"bg.png", "banner", false, nil,
+	)
+
+	mock.ExpectQuery(`SELECT u\.id, u\.public_id, u\.username.*FROM users.*WHERE u\.id = \$1.*LIMIT \$2 OFFSET \$3`).
+		WithArgs("u1", 50, 0).
+		WillReturnRows(rows)
+
+	expectPrivacyBatch(mock, privacyBatchRow{id: "u1", blockedByMe: true})
+
+	handler.GetProfiles(c)
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	p := resp.Data.([]interface{})[0].(map[string]interface{})
+	if p["blocked_by_me"] != true {
+		t.Fatalf("expected blocked_by_me, got %#v", p)
+	}
+	if p["avatar_url"] == nil || p["bio"] == nil {
+		t.Fatalf("the blocker must keep the full profile, got %#v", p)
+	}
+	if p["content_hidden"] == true {
+		t.Fatal("content_hidden must stay false for the blocker")
 	}
 }

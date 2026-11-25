@@ -160,14 +160,20 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			nowISO := time.Now().UTC().Format(time.RFC3339Nano)
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+				"message_id":      req.MessageID,
+				"read_at":         nowISO,
+				"event":           "read_receipt",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "read_receipt",
-				Payload: map[string]interface{}{
-					"conversation_id": conversationID,
-					"user_id":         claims.UserID,
-					"message_id":      req.MessageID,
-					"event":           "read_receipt",
-				},
+				Type:    "read_receipt",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
@@ -252,6 +258,30 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 		httpx.ServerError(c, "mark delivered", err)
 		return
 	}
+
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
+		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+				"message_id":      req.MessageID,
+				"delivered_at":    sentAt.UTC().Format(time.RFC3339Nano),
+				"event":           "delivery_receipt",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+				Type:    websocket.MessageTypeDeliveryReceipt,
+				Payload: payload,
+			}); err != nil {
+				// Best effort.
+			}
+		})
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
@@ -436,20 +466,19 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		return
 	}
 
-	// Check membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	// A pin changes shared state (every member sees it), so it obeys the same
+	// 1:1 policy as a send.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
 		return
 	}
 
 	// Verify the message belongs to this conversation
 	var msgExists bool
-	err = h.dbFor(c).QueryRow(
+	err := h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
 		req.MessageID, conversationID,
 	).Scan(&msgExists)

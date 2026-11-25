@@ -15,12 +15,18 @@ import (
 const privacyRowSQL = `SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`
 
 func expectVisibleWall(mock sqlmock.Sqlmock, ownerID string) {
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(privacyRowSQL).
 		WithArgs(ownerID).
 		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(false, false))
 }
 
 func expectHiddenWall(mock sqlmock.Sqlmock, viewerID, ownerID string) {
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(privacyRowSQL).
 		WithArgs(ownerID).
 		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(true, false))
@@ -30,6 +36,7 @@ func expectHiddenWall(mock sqlmock.Sqlmock, viewerID, ownerID string) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 }
 
+// expectNoPrivacyRow is only used with an anonymous viewer (no block lookup).
 func expectNoPrivacyRow(mock sqlmock.Sqlmock, ownerID string) {
 	mock.ExpectQuery(privacyRowSQL).
 		WithArgs(ownerID).

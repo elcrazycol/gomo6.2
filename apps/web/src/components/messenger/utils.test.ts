@@ -85,8 +85,15 @@ describe("utils", () => {
     });
 
     it("returns relative 'был(а) в сети N назад' for older offline", () => {
-      const result = formatPresence(false, "2025-06-01T12:00:00Z");
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const result = formatPresence(false, threeDaysAgo);
       expect(result).toMatch(/^был\(а\) в сети .+ назад$/);
+    });
+
+    it("collapses anything older than a week to 'был(а) давно'", () => {
+      // Also what a peer hidden by a block looks like — no timestamp leak.
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      expect(formatPresence(false, monthAgo)).toBe("был(а) давно");
     });
 
     it("returns 'не в сети' for an invalid lastSeen date", () => {

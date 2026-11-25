@@ -56,6 +56,9 @@ export interface ProfileHeaderProps {
   onEditClick: () => void;
   onUsernameClick: () => void;
   onOpenMessages: () => void;
+  /** The viewer blocked this profile — the actions menu offers «Разблокировать». */
+  blockedByMe?: boolean;
+  onToggleBlock?: () => void;
   /** Forum layout: the avatar and the write/subscribe actions live in the side panel. */
   forumMode?: boolean;
   /** Live stories of this profile → the avatar gets a segmented ring. */
@@ -99,6 +102,8 @@ export function ProfileHeader({
   onEditClick,
   onUsernameClick,
   onOpenMessages,
+  blockedByMe = false,
+  onToggleBlock,
   forumMode = false,
   storyCount = 0,
   storyReadCount = 0,
@@ -344,6 +349,8 @@ export function ProfileHeader({
             reportTargetLabel="на пользователя"
             triggerTitle="Действия"
             triggerClassName="rounded-xl border border-border/60 bg-background/85 backdrop-blur-md hover:bg-background"
+            blockedByMe={blockedByMe}
+            onToggleBlock={onToggleBlock}
           />
         </motion.div>
       )}

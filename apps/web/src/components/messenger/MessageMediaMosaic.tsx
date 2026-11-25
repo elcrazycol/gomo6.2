@@ -16,10 +16,6 @@ export type MessageMediaMosaicProps = {
   onOpen: (index: number) => void;
 };
 
-function attachmentsTileStyle(attachment: Attachment): React.CSSProperties {
-  return { aspectRatio: getAttachmentAspectRatio(attachment) };
-}
-
 function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; index: number; onOpen: (index: number) => void }) {
   const meta = useMemo(() => parseImageMeta(attachment), [attachment]);
   // Albums must remain useful for older attachments that predate preview
@@ -53,7 +49,7 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
       type="button"
       className={`msg-media-mosaic-tile msg-attachment-image tile-${index + 1}${isLoaded ? " is-loaded" : " is-loading"}`}
       onClick={() => onOpen(index)}
-      aria-label={`Открыть ${attachment.name}`}          style={attachmentsTileStyle(attachment)}
+      aria-label={`Открыть ${attachment.name}`}
     >
       {placeholder && <img className="msg-attachment-lqip" src={placeholder} alt="" aria-hidden="true" />}
       {url && (isVideo ? (
@@ -94,13 +90,15 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
   );
 }
 
+// Telegram's album geometry, simplified: 2 side-by-side squares, 3 = one
+// large left + two stacked right, 4 = 2×2, 5/6 = 3 across in two rows. The
+// container ratio is fixed per count so the grid never depends on the photos'
+// own ratios (cover crops each tile, like Telegram).
 function mosaicRatio(count: number): number {
-  if (count === 2) return 3 / 2;
+  if (count === 2) return 2;
   if (count === 3) return 4 / 3;
   if (count === 4) return 1;
-  // 2 columns × 3 rows: square-ish cells keep six photos readable without
-  // forcing portrait images into a stretched or cropped frame.
-  return 2 / 3;
+  return 4 / 3;
 }
 
 export function MessageMediaMosaic({ attachments, onOpen }: MessageMediaMosaicProps) {

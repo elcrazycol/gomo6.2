@@ -11,12 +11,12 @@
    state — and the page itself never scrolls. */
 main.is-messenger-page {
   flex: 0 0 auto;
-  /* --app-vh (set by lib/mobileKeyboard.ts) follows the *visual* viewport,
-     so the whole messenger shrinks when the mobile keyboard opens (iOS never
-     resizes the layout viewport — without this the composer would sit under
-     the keyboard and Safari would pan the document, causing the jitter). */
-  height: var(--app-vh, 100dvh);
-  max-height: var(--app-vh, 100dvh);
+  /* Constant height, exactly like Telegram Web: the keyboard NEVER resizes this
+     box. Shrinking it re-laid out every mounted row on every keyboard frame
+     (the Android jank). The mobile chat panel is lifted with a compositor-only
+     translate instead — see `.chat-panel.is-open` below. */
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
 }
 
@@ -121,6 +121,7 @@ main.is-messenger-page {
 
 .chat-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-width: 0;
   min-height: 0;
@@ -496,6 +497,16 @@ main.is-messenger-page {
   line-height: 1.35;
 }
 
+.conversation-muted-icon {
+  flex: 0 0 auto;
+  color: oklch(var(--muted-foreground) / 0.8);
+}
+
+.count-badge.is-muted {
+  background: oklch(var(--muted-foreground) / 0.35);
+  color: oklch(var(--foreground));
+}
+
 .conversation-preview.muted {
   opacity: 0.7;
 }
@@ -785,9 +796,9 @@ main.is-messenger-page {
 }
 
 .message-list {
-  /* Side inset of every message row. Kept to a hairline: bubbles should reach
-     the edge, with just enough so a shadow/border is not clipped. */
-  --message-gutter: 2px;
+  /* Side inset of every message row — bubbles must not touch the panel edge
+     (a hairline made them read as clipped against the border). */
+  --message-gutter: 8px;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -903,6 +914,56 @@ main.is-messenger-page {
    only — never layout — so it cannot move anything else in the list. */
 .message-row.is-flash .message-bubble {
   animation: message-flash 1.4s ease-out;
+}
+
+/* ── Delete exit ──
+   The row keeps its place while the bubble crumbles; `core/deleteAnimation.ts`
+   collapses the row's height (the only layout-animating property) and the store
+   drops the row when the exit ends. The pieces live in `.delete-crumbs`, a layer
+   in the scroller (not in the fading row), and move with transform/opacity only
+   — no filters, no shadows, no clip-path, so a phone composites them. */
+.bubble-row.is-deleting {
+  pointer-events: none;
+}
+
+.delete-crumbs {
+  /* Layout/style containment: nine absolutely positioned pieces can never
+     trigger work outside their own box. */
+  contain: layout style;
+}
+
+.delete-crumb {
+  box-sizing: border-box;
+  /* Theme-tinted shards: a 4-6% bubble fill would be invisible against the chat,
+     and a hardcoded colour would break the other themes. */
+  border: 1px solid oklch(var(--primary) / 0.3);
+  background: oklch(var(--primary) / 0.16);
+  will-change: transform, opacity;
+  animation: delete-crumb-flight var(--crumb-ms, 240ms) cubic-bezier(0.25, 0.6, 0.4, 1) var(--crumb-delay, 0ms) both;
+}
+
+.delete-crumb[data-mine="0"] {
+  border-color: oklch(var(--foreground) / 0.14);
+  background: oklch(var(--foreground) / 0.07);
+}
+
+@keyframes delete-crumb-flight {
+  from {
+    opacity: 0.95;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(var(--crumb-dx, 0), var(--crumb-dy, 10px), 0) rotate(var(--crumb-rot, 0deg)) scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The store removes the row instantly in this mode; nothing to animate. */
+  .delete-crumbs {
+    display: none;
+  }
 }
 
 /* A message that just arrived, marked by the list's writer for exactly the rows
@@ -1210,7 +1271,10 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
    section, never painted over the image. */
 .message-bubble.is-media-bubble {
   box-sizing: border-box;
-  width: min(70%, 640px);
+  /* Hug the photo/mosaic (their boxes carry an intrinsic pixel width); the
+     cap keeps a huge image inside the message column. The old fixed 70% left
+     empty space around small photos and, on mobile, collapsed to 0. */
+  width: fit-content;
   max-width: min(70%, 640px);
   min-width: 0;
   padding: 0;
@@ -1240,7 +1304,21 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   align-items: stretch;
 }
 
+/* Readability scrim under the overlaid time/status — a white photo otherwise
+   swallows the white text. Caption bubbles carry the meta on the caption, so
+   they are excluded. */
+.message-bubble.is-media-bubble:not(.has-caption)::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 46px;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.42), transparent);
+}
+
 .message-bubble.is-media-bubble .message-meta {
+  z-index: 1;
   right: 9px;
   bottom: 8px;
   padding: 2px 0 2px 5px;
@@ -1392,46 +1470,23 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   max-width: 100%;
 }
 
-.message-bubble.is-multiline .message-content-stack {
-  padding-bottom: 22px;
-}
-
-.message-bubble.is-measuring .message-meta,
-.message-bubble.is-measuring .message-content-text::after,
-.message-bubble.is-measuring .message-content-stack::after {
-  display: none;
-}
-
-/* Measure one-line messages with the same right-side reserve they will have
-   after the metadata is positioned. This prevents a late wrap/overlap. The
-   reserve applies to both plain-text (.message-content-text) and emoji /
-   rich-text (.message-content-stack) messages so the time/status pill never
-   paints over the last emoji or link. */
-.message-bubble.is-measuring .message-content-text,
-.message-bubble.is-compact .message-content-text,
-.message-bubble.is-measuring .message-content-stack,
-.message-bubble.is-compact .message-content-stack {
-  box-sizing: border-box;
-  display: block;
-  padding-right: var(--message-meta-reserve);
-}
-
-.message-bubble.is-multiline .message-content-text::after,
-.message-bubble.is-multiline .message-content-stack::after {
-  content: "";
-  display: inline-block;
-  width: var(--message-meta-reserve);
-  height: 1em;
+/* Invisible inline twin of .message-meta. It lives at the very end of the text
+   flow, so the browser's line breaking reserves the pill's exact width on the
+   last line — no JS measurement, no forced reflow, no ResizeObserver. The
+   visible pill stays absolutely positioned at the bubble's bottom-right. */
+.message-meta-reserve {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 0 1px 6px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
   vertical-align: bottom;
-}
-
-.message-bubble.is-compact .message-content-text::after,
-.message-bubble.is-compact .message-content-stack::after {
-  display: none;
-}
-
-.message-bubble.is-compact .message-content-stack {
-  padding-bottom: 0;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
 }
 
 
@@ -1451,6 +1506,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   cursor: default;
   min-width: 0;
   max-width: 100%;
+  /* Nothing inside may paint past the bubble edge: a long author name used to
+     spill out and squeeze the quoted text to zero width. */
+  overflow: hidden;
 }
 
 .quoted-message.is-clickable {
@@ -1475,7 +1533,13 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   font-weight: 600;
   color: oklch(var(--primary));
   white-space: nowrap;
-  flex-shrink: 0;
+  /* Shrinkable (a percentage cap is unstable here: the bubble is shrink-to-fit,
+     so 40% of a small bubble clipped even «Собеседник»). `min-width: 0` keeps a
+     long display name inside the quote, and the preview absorbs the rest. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .quoted-text {
@@ -1720,15 +1784,7 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   background: oklch(var(--primary) / 0.06);
 }
 
-.message-bubble.is-compact .message-meta {
-  /* Compact messages use the same right-edge placement as every other
-     message; the body reserves space instead of placing meta after text. */
-  position: absolute;
-  right: 11px;
-  bottom: 8px;
-  margin: 0;
-  padding: 1px 0 1px 6px;
-}
+
 
 .message-time,
 .edited-label,
@@ -2670,6 +2726,36 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   to { opacity: 1; transform: none; }
 }
 
+/* The exit mirrors the entrance: the panel glides DOWN and fades while the
+   floated copy returns to the message's real slot, so nothing blinks out when
+   an action is chosen. */
+@keyframes msg-panel-out {
+  to { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
+
+.msg-action-panel.is-closing,
+.msg-reaction-bar.is-closing {
+  pointer-events: none;
+  animation: msg-panel-out 0.16s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+}
+
+/* The group lands on the bubble at the panel's tempo (the open lift takes
+   0.38s; the exit must not outlast the panel). */
+.msg-action-lift.is-closing {
+  transition-duration: 0.16s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-action-panel.is-closing,
+  .msg-reaction-bar.is-closing {
+    animation-duration: 1ms;
+  }
+
+  .msg-action-lift.is-closing {
+    transition-duration: 1ms;
+  }
+}
+
 .msg-action-item {
   display: flex;
   align-items: center;
@@ -2722,14 +2808,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
    stacking context, mobile and desktop alike. */
 .chat-panel.has-message-menu .chat-header-group,
 .chat-panel.has-message-menu .composer,
-.chat-panel.has-message-menu .error-banner,
 .chat-panel.has-message-menu .notes-key-banner,
 .chat-panel.has-message-menu .notes-filter-bar,
-.chat-panel.has-message-menu .notes-pinned-section .notes-section-heading,
 .chat-panel.has-message-menu .scroll-to-bottom-btn,
 .chat-panel.has-message-menu .msg-history-loader,
-.chat-panel.has-message-menu .message-row:not(.is-menu-host),
-.chat-panel.has-message-menu .notes-pinned-item:not(.is-menu-host) {
+.chat-panel.has-message-menu .message-row:not(.is-menu-host) {
   filter: blur(6px) brightness(0.85);
   opacity: 0.55;
   transition: filter 0.18s ease, opacity 0.18s ease;
@@ -2741,7 +2824,7 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 /* The selected message's row keeps a class for the blur exclusion; the
    visible copy floats in .msg-action-lift above everything. */
 .chat-panel.has-message-menu .message-row.is-menu-host,
-.chat-panel.has-message-menu .notes-pinned-item.is-menu-host {
+.chat-panel.has-message-menu .message-row.is-menu-host {
   position: relative;
   z-index: 55;
 }
@@ -2792,11 +2875,28 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   border-left: 3px solid oklch(var(--primary));
   border-radius: 8px;
   font-size: 13px;
+  /* A flex item's automatic minimum size would let a long reply preview widen
+     the whole composer past the viewport and shove the ✕ off-screen. Every
+     shrinkable child also needs `min-width: 0` — see below. */
+  min-width: 0;
+  max-width: 100%;
   animation: fade-in-scale 0.15s ease;
 }
-.composer-reply-banner .reply-label { font-weight: 600; color: oklch(var(--primary)); }
-.composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(var(--foreground) / 0.7); }
-.composer-reply-cancel { background: none; border: none; cursor: pointer; color: oklch(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; outline: none; }
+.composer-reply-banner .reply-label {
+  font-weight: 600;
+  color: oklch(var(--primary));
+  /* The author is a capped prefix that keeps priority over the preview: cap it
+     (very long display names) and ellipsize, so the preview always keeps room
+     for a few words. */
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-reply-banner .reply-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(var(--foreground) / 0.7); }
+.composer-reply-cancel { background: none; border: none; cursor: pointer; color: oklch(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; flex-shrink: 0; outline: none; }
 .composer-reply-cancel:hover { background: oklch(var(--foreground) / 0.1); color: oklch(var(--foreground)); }
 .composer-reply-cancel:focus-visible { outline: 2px solid oklch(var(--ring)); outline-offset: 1px; }
 
@@ -2962,223 +3062,6 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 
 .composer-counter.is-critical {
   color: oklch(var(--destructive));
-}
-
-/* ── Formatting toggle — a quiet chevron inside the pill, immediately left of
-   the emoji trigger (same family as the paperclip/emoji circles) ── */
-
-.composer-toolbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: oklch(var(--muted-foreground));
-  cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
-}
-
-.composer-toolbar-toggle:hover,
-.composer-toolbar-toggle.is-open {
-  color: oklch(var(--foreground));
-  background: oklch(var(--thread-hover));
-}
-
-.composer-toolbar-toggle:active {
-  transform: scale(0.92);
-}
-
-/* ── Formatting panel — a content-hugging row above the input's right side,
-   opened by the pill's chevron. It no longer spans the whole composer. ── */
-
-.composer-panel-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 8px auto;
-  overflow: hidden;
-  animation: composer-panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.composer-panel-row.is-exiting {
-  animation: composer-panel-out 200ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-@keyframes composer-panel-in {
-  from { opacity: 0; transform: translateY(-10px); max-height: 0; }
-  to { opacity: 1; transform: translateY(0); max-height: 48px; }
-}
-
-@keyframes composer-panel-out {
-  from { opacity: 1; transform: translateY(0); max-height: 48px; }
-  to { opacity: 0; transform: translateY(-10px); max-height: 0; }
-}
-
-.composer-toolbar-panel {
-  flex: 0 0 auto;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0;
-  border-radius: 10px;
-}
-
-/* ── Fullscreen button — sits a little apart at the toolbar's right edge ── */
-
-.composer-fullscreen-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  margin-left: 6px;
-  border: 1px solid oklch(var(--border));
-  border-radius: 50%;
-  background: oklch(var(--background) / 0.6);
-  color: oklch(var(--muted-foreground));
-  cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-
-.composer-fullscreen-btn:hover {
-  color: oklch(var(--foreground));
-  border-color: oklch(var(--primary) / 0.5);
-  background: oklch(var(--thread-hover));
-}
-
-.composer-fullscreen-btn:active {
-  transform: scale(0.92);
-}
-
-/* ── Fullscreen composer — a wall-style full-viewport editor: header on top,
-   the editor filling the middle, and ONE bottom bar with the formatting
-   toolbar plus every control. Rendered through a portal (the chat panel's
-   framer transform would trap a position:fixed inside it), so it really covers
-   the viewport. ── */
-
-.composer-fs-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  background: oklch(var(--background));
-}
-
-.composer-fs-dialog {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100dvh;
-  min-height: 0;
-  background: oklch(var(--background));
-}
-
-.composer-fs-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 8px 10px;
-  border-bottom: 1px solid oklch(var(--border));
-  background: oklch(var(--card));
-}
-
-.composer-fs-title {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: oklch(var(--foreground));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.composer-fs-close,
-.composer-fs-minimize {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: oklch(var(--muted-foreground));
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.composer-fs-close:hover,
-.composer-fs-minimize:hover {
-  background: oklch(var(--thread-hover));
-  color: oklch(var(--foreground));
-}
-
-/* The editor fills everything between the header and the bottom bar. */
-.composer-fs-editor {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  padding: 14px 16px;
-}
-
-/* Stretch the editor (its wrapper chain) to the full height of the area. */
-.composer-fs-editor > .space-y-2 {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.composer-fs-editor > .space-y-2 > div {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.composer-fs-editor > .space-y-2 > div > div {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.composer-fs-editor [contenteditable] {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-/* One bottom bar: formatting toolbar on the left, controls on the right. */
-.composer-fs-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid oklch(var(--border));
-  background: oklch(var(--card));
-}
-
-.composer-fs-bar-spacer {
-  flex: 1 1 auto;
-}
-
-.composer-fs-bar .composer-toolbar-panel {
-  flex: 0 1 auto;
-  min-width: 0;
 }
 
 /* ── Attach button (paperclip) — always sits on the left of the input row ── */
@@ -3504,7 +3387,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  width: min(100%, 640px);
+  /* Pixel width for intrinsic sizing, clamped by max-width — see the media
+     bubble note (a `min(100%, …)` width contributes 0 and collapses). */
+  width: 640px;
   max-width: 100%;
 }
 
@@ -3537,11 +3422,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 .msg-media-mosaic {
   position: relative;
   display: grid;
-  width: min(100%, 640px);
+  width: 640px;
   max-width: 100%;
   min-height: 160px;
   aspect-ratio: var(--mosaic-ratio, 4 / 3);
-  gap: 3px;
+  gap: 2px;
   overflow: hidden;
   border-radius: 0;
   background: oklch(var(--muted) / 0.28);
@@ -3580,16 +3465,25 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   grid-template-rows: repeat(3, 1fr);
 }
 .msg-media-mosaic.mosaic-count-4 .tile-1 { grid-row: 1 / -1; }
-.msg-media-mosaic.mosaic-count-5,
+/* 5/6: Telegram's two-row gallery. Six fills 3×2; five fills the top row
+   with three and the bottom with two wider tiles (fractional 6-track grid). */
 .msg-media-mosaic.mosaic-count-6 {
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: 0.72fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
 }
-.msg-media-mosaic.mosaic-count-5 .tile-1 { grid-row: 1 / 3; }
-.msg-media-mosaic.mosaic-count-5 .tile-2 { grid-row: 1 / 2; }
-.msg-media-mosaic.mosaic-count-5 .tile-3 { grid-row: 2 / 3; }
-.msg-media-mosaic.mosaic-count-5 .tile-4 { grid-row: 3 / 4; }
-.msg-media-mosaic.mosaic-count-5 .tile-5 { grid-row: 3 / 4; }
+.msg-media-mosaic.mosaic-count-5 {
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.msg-media-mosaic.mosaic-count-5 .tile-1,
+.msg-media-mosaic.mosaic-count-5 .tile-2,
+.msg-media-mosaic.mosaic-count-5 .tile-3 {
+  grid-column: span 2;
+}
+.msg-media-mosaic.mosaic-count-5 .tile-4,
+.msg-media-mosaic.mosaic-count-5 .tile-5 {
+  grid-column: span 3;
+}
 
 .msg-media-mosaic-tile .msg-media-mosaic-image,
 .msg-media-mosaic-tile .msg-attachment-lqip,
@@ -3599,7 +3493,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  /* Albums crop to fill their tile (Telegram does the same); letterboxing
+     inside a mosaic reads as a broken/empty stub. */
+  object-fit: cover;
   background: oklch(var(--muted) / 0.18);
   transition: opacity 260ms ease, filter 260ms ease, transform 260ms ease;
 }
@@ -3909,41 +3805,6 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   z-index: 3;
   pointer-events: none;
   border-radius: var(--radius);
-}
-
-/* ── Error banner ── */
-
-.error-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid oklch(var(--destructive) / 0.35);
-  border-radius: var(--radius);
-  background: oklch(var(--destructive) / 0.12);
-  color: oklch(var(--foreground));
-  font-size: 13px;
-  margin: 4px 8px;
-}
-
-.error-dismiss {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: oklch(var(--muted-foreground));
-  cursor: pointer;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.error-dismiss:hover {
-  background: oklch(var(--destructive) / 0.15);
 }
 
 /* ── Scroll to bottom FAB ──
@@ -4387,7 +4248,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
      delta is 0 and no lift is applied. */
   .chat-panel.is-open {
     translate: 0 calc(-1 * var(--kb-inset, 0px));
-    transition: translate 0.2s ease-out;
+    /* The ONLY smoothing in the system, and it applies on every engine: the
+       JS follow loop writes the live inset each frame, this transition turns
+       the stepwise writes into one continuous glide. Android no longer gets a
+       separate native path (see index.html). */
+    transition: translate 0.18s cubic-bezier(0.2, 0, 0, 1);
     will-change: translate;
   }
 
@@ -4514,7 +4379,8 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   }
 
   .message-list {
-    --message-gutter: 2px;
+    /* Mobile is edge-to-edge, so the inset carries the whole breathing room. */
+    --message-gutter: 10px;
   }
 
   .chat-panel.is-empty .chat-empty-state {
@@ -4532,6 +4398,12 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
     width: fit-content;
     max-width: 88%;
     padding: 0;
+  }
+
+  /* An album is a fixed-ratio block, not a hugging photo: keep its width
+     definite so the mosaic grid has a real box to fill. */
+  .message-bubble.is-media-bubble.is-media-album {
+    width: min(88%, 640px);
   }
 
   .message-content-media .msg-attachment-image {
@@ -4779,50 +4651,6 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 }
 
 /* ── Notes organization: pinned section, folder filter, quick pin, chips ── */
-
-/* Pinned notes section — compact, always-mounted list above the main list */
-.notes-pinned-section {
-  flex-shrink: 0;
-  max-height: 38vh;
-  overflow-y: auto;
-  margin: 10px 14px 2px;
-  padding: 10px 12px 8px;
-  border: 1px solid oklch(var(--primary) / 0.22);
-  border-radius: 12px;
-  background: linear-gradient(180deg, oklch(var(--primary) / 0.07), oklch(var(--primary) / 0.03));
-  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.03);
-}
-
-.notes-section-heading {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  color: oklch(var(--primary));
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
-}
-
-.notes-section-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: oklch(var(--primary) / 0.16);
-  color: oklch(var(--primary));
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.notes-pinned-list {
-  display: grid;
-  gap: 6px;
-}
 
 /* Folder filter chips bar. Floats absolutely over the top of the messages
    area (.chat-messages-area is position: relative) so it takes no layout
@@ -5218,6 +5046,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 .chat-view-dnd-root {
   position: relative;
   display: grid;
+  /* An explicit minmax(0, 1fr) column is load-bearing: with an implicit `auto`
+     column the track sizes to its widest CONTENT (a long nowrap reply preview
+     was enough), so the whole chat — header, list and composer — grew past the
+     panel and got clipped instead of ellipsizing. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   /* Span every row of .chat-panel (auto 1fr auto) so the wrapper always fills
      the panel height — a plain height:100% would resolve against an auto-sized
@@ -5306,8 +5139,8 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  /* Bottom padding reserves the absolutely-positioned time/status row, exactly
-     like a normal bubble's is-multiline content reserve. */
+  /* Bottom padding reserves the absolutely-positioned time/status row: the card
+     has no text flow to hang the inline reserve on. */
   padding: 10px 12px 22px;
   border: 1px solid oklch(var(--border));
   border-radius: 14px;
@@ -5420,4 +5253,1350 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
      card whose time/status sits in the bottom padding). */
   padding: 10px 12px;
   cursor: default;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 5 — Telegram-clean surface
+   • connection state instead of banners
+   • one-line pinned-notes bar
+   • compact per-message failure
+   • selection formatting
+   • new-chat / profile panels
+   • calmer bubble typography and grouping
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Connection state (Telegram's "connecting…") ─────────────────────────── */
+
+.presence-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: oklch(var(--primary));
+  font-weight: 500;
+}
+
+.presence-connection.is-offline {
+  color: oklch(var(--muted-foreground));
+}
+
+.presence-connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: presence-connection-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes presence-connection-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.messenger-connection-pill {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 5px 8px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 999px;
+  background: oklch(var(--card) / 0.92);
+  color: oklch(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 6px 18px -10px oklch(0 0 0 / 0.5);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  animation: connection-pill-in 0.18s ease-out both;
+}
+
+@keyframes connection-pill-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.messenger-connection-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid oklch(var(--primary) / 0.25);
+  border-top-color: oklch(var(--primary));
+  animation: connection-spin 0.9s linear infinite;
+}
+
+/* The phone keeps its bottom navigation rail over the page: lift the pill
+   above it instead of letting them share the last 24px. */
+@media (max-width: 1023px) {
+  main.has-mobile-bottom-nav .messenger-connection-pill {
+    bottom: calc(var(--mobile-bottom-nav-space, 5rem) + 4px);
+  }
+}
+
+.messenger-connection-pill.is-offline .messenger-connection-spinner {
+  border-color: oklch(var(--muted-foreground) / 0.3);
+  border-top-color: oklch(var(--muted-foreground));
+  animation-duration: 2.4s;
+}
+
+@keyframes connection-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Pinned notes: ONE row ───────────────────────────────────────────────── */
+
+.notes-pinned-banner {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 6px 12px 0;
+  border: 1px solid oklch(var(--border));
+  border-radius: 12px;
+  background: oklch(var(--card));
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.notes-pinned-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notes-pinned-main:hover {
+  background: oklch(var(--foreground) / 0.04);
+}
+
+.notes-pinned-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: oklch(var(--primary) / 0.14);
+  color: oklch(var(--primary));
+}
+
+.notes-pinned-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.notes-pinned-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: oklch(var(--primary));
+  line-height: 1.2;
+}
+
+.notes-pinned-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: oklch(var(--foreground) / 0.9);
+}
+
+.notes-pinned-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: oklch(var(--muted-foreground));
+}
+
+.notes-pinned-expand {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid oklch(var(--border));
+  background: none;
+  color: oklch(var(--muted-foreground));
+  cursor: pointer;
+  transition: transform 0.16s ease, color 0.16s ease;
+}
+
+.notes-pinned-expand:hover {
+  color: oklch(var(--foreground));
+}
+
+.notes-pinned-expand.is-open {
+  transform: rotate(180deg);
+}
+
+.notes-pinned-popover {
+  max-height: 320px;
+}
+
+.notes-pinned-popover-head {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: oklch(var(--muted-foreground));
+}
+
+.notes-pinned-popover-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.notes-pinned-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: oklch(var(--foreground));
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notes-pinned-popover-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-pinned-popover-item svg {
+  flex: 0 0 auto;
+  color: oklch(var(--primary));
+}
+
+.notes-pinned-popover-item:hover {
+  background: oklch(var(--foreground) / 0.06);
+}
+
+.notes-pinned-popover-item.is-current {
+  background: oklch(var(--primary) / 0.1);
+}
+
+/* The notes key notice: a one-line pill with a small action, not a yellow wall. */
+.notes-key-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 12px 0;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 999px;
+  background: oklch(var(--muted) / 0.45);
+  color: oklch(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.notes-key-banner > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-key-banner svg {
+  flex: 0 0 auto;
+}
+
+.notes-key-banner-action {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: oklch(var(--primary) / 0.14);
+  color: oklch(var(--primary));
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notes-key-banner-action:hover {
+  background: oklch(var(--primary) / 0.22);
+}
+
+/* ── Per-message failure (Telegram's small "!") ──────────────────────────── */
+
+.message-failed {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 4;
+}
+
+.bubble-row:not(.is-mine) .message-failed {
+  right: auto;
+  left: -5px;
+}
+
+.message-failed-dot {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid oklch(var(--background));
+  border-radius: 50%;
+  background: oklch(var(--destructive));
+  color: oklch(var(--destructive-foreground));
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 6px oklch(0 0 0 / 0.25);
+}
+
+.message-failed-menu {
+  position: absolute;
+  top: 23px;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 136px;
+  padding: 4px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 12px;
+  background: oklch(var(--popover));
+  box-shadow: 0 12px 30px -12px oklch(0 0 0 / 0.55);
+}
+
+.bubble-row:not(.is-mine) .message-failed-menu {
+  right: auto;
+  left: 0;
+}
+
+.message-failed-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: oklch(var(--foreground));
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-failed-menu button:hover {
+  background: oklch(var(--foreground) / 0.07);
+}
+
+.message-failed-menu button.is-destructive {
+  color: oklch(var(--destructive));
+}
+
+/* A failed media send keeps its controls outside the clipped image box. */
+.message-bubble.is-media-bubble.is-stuck {
+  overflow: visible;
+}
+
+.message-bubble.is-media-bubble.is-stuck .message-content-media,
+.message-bubble.is-media-bubble.is-stuck .msg-attachments,
+.message-bubble.is-media-bubble.is-stuck .msg-attachment-image {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.message-content-fallback {
+  display: inline-block;
+  font-size: 12.5px;
+  font-style: italic;
+  color: oklch(var(--muted-foreground));
+}
+
+/* Compact whole-messenger crash notice. */
+.messenger-crash {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: auto;
+  padding: 14px 16px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 14px;
+  background: oklch(var(--card));
+  color: oklch(var(--foreground));
+  max-width: 420px;
+}
+
+.messenger-crash-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.messenger-crash-copy strong {
+  font-size: 13px;
+}
+
+.messenger-crash-copy span {
+  font-size: 11.5px;
+  color: oklch(var(--muted-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.messenger-crash-retry {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: oklch(var(--primary) / 0.14);
+  color: oklch(var(--primary));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Selection formatting bubble ─────────────────────────────────────────── */
+
+.rich-selection-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 999px;
+  background: oklch(var(--popover) / 0.97);
+  box-shadow: 0 12px 28px -14px oklch(0 0 0 / 0.6);
+  backdrop-filter: blur(14px);
+  z-index: 90;
+}
+
+.rich-selection-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: oklch(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.rich-selection-btn:hover,
+.rich-selection-btn.is-active {
+  background: oklch(var(--primary) / 0.16);
+  color: oklch(var(--primary));
+}
+
+/* ── Calmer bubbles and chat list ─────────────────────────────────────────*/
+
+.message-bubble {
+  border-color: transparent;
+  border-radius: 16px;
+  padding: 7px 11px 7px;
+}
+
+.message-bubble:not(.is-mine) {
+  background: oklch(var(--card));
+}
+
+.message-bubble.is-mine {
+  border-color: transparent;
+  background: oklch(var(--primary) / 0.11);
+}
+
+.message-bubble.is-mine:hover {
+  background: oklch(var(--primary) / 0.13);
+}
+
+.bubble-row:not(.is-mine) .message-bubble {
+  border-bottom-left-radius: 6px;
+}
+
+.bubble-row.is-mine .message-bubble {
+  border-bottom-right-radius: 6px;
+}
+
+.bubble-row.is-consecutive:not(.is-mine) .message-bubble {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 16px;
+}
+
+.bubble-row.is-consecutive.is-mine .message-bubble {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 16px;
+}
+
+.message-bubble p {
+  font-size: 14px;
+  line-height: 1.42;
+}
+
+@media (max-width: 980px) {
+  /* iOS never zooms a 15px field, and the extra point is what makes a phone
+     bubble match Telegram. */
+  .message-bubble p,
+  .message-content-text,
+  .message-content-stack,
+  .message-media-caption {
+    font-size: 15px;
+    line-height: 1.42;
+  }
+}
+
+.message-time,
+.edited-label,
+.message-status {
+  font-size: 10.5px;
+  color: oklch(var(--muted-foreground) / 0.95);
+}
+
+.message-bubble.is-mine .message-time,
+.message-bubble.is-mine .edited-label {
+  color: oklch(var(--primary) / 0.75);
+}
+
+.status-double-check.is-read {
+  color: oklch(var(--primary));
+}
+
+.conversation-head strong {
+  font-size: 14.5px;
+}
+
+.conversation-preview {
+  font-size: 12.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.conversation-card {
+  padding: 9px 14px;
+}
+
+/* ── New chat sheet ──────────────────────────────────────────────────────── */
+
+.new-chat-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 20px));
+  max-height: min(640px, 84vh);
+  padding: 0;
+  gap: 0;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.new-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.new-chat-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: left;
+}
+
+.new-chat-back {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: oklch(var(--muted) / 0.6);
+  color: oklch(var(--foreground));
+  cursor: pointer;
+}
+
+.new-chat-search {
+  position: relative;
+  padding: 0 12px 8px;
+}
+
+.new-chat-search-icon {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-60%);
+  color: oklch(var(--muted-foreground));
+  pointer-events: none;
+}
+
+.new-chat-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px 9px 34px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 999px;
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
+  font-size: 14px;
+  outline: none;
+}
+
+.new-chat-search-input:focus {
+  border-color: oklch(var(--primary) / 0.6);
+}
+
+.new-chat-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 8px;
+}
+
+.new-chat-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: oklch(var(--primary));
+  font-size: 13.5px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+
+.new-chat-group-row:hover {
+  background: oklch(var(--primary) / 0.08);
+}
+
+.new-chat-group-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: oklch(var(--primary) / 0.14);
+}
+
+.new-chat-section {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: oklch(var(--muted-foreground));
+}
+
+.new-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.new-chat-row:hover:not(:disabled) {
+  background: oklch(var(--foreground) / 0.055);
+}
+
+.new-chat-row:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.new-chat-row .avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.new-chat-row-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-chat-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.new-chat-row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.new-chat-empty {
+  margin: 18px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.new-chat-loader {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.new-chat-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 16px 16px;
+}
+
+.new-chat-label {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: oklch(var(--muted-foreground));
+}
+
+.new-chat-group-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 10px;
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
+  font-size: 14px;
+  outline: none;
+}
+
+.new-chat-group-input:focus {
+  border-color: oklch(var(--primary) / 0.6);
+}
+
+.new-chat-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.new-chat-create {
+  margin-top: 4px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.new-chat-create:disabled {
+  background: oklch(var(--muted));
+  color: oklch(var(--muted-foreground));
+  cursor: default;
+}
+
+/* ── User info panel (Telegram profile) ──────────────────────────────────── */
+
+@media (min-width: 981px) {
+  .user-info-panel {
+    width: 360px;
+  }
+}
+
+/* The panel body scrolls; its blocks must keep their intrinsic height instead
+   of being squeezed by the flex container (the switch rows were clipped). */
+.user-info-panel-body {
+  padding: 14px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  gap: 10px;
+}
+
+.user-info-panel-body > * {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.user-info-actions {
+  max-width: none;
+}
+
+.user-info-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px 4px;
+  text-align: center;
+}
+
+.user-info-hero .user-info-name {
+  margin: 10px 0 2px;
+}
+
+.user-info-hero .user-info-presence {
+  margin-top: 4px;
+}
+
+.user-info-switches {
+  display: flex;
+  flex-direction: column;
+  margin: 14px 10px 4px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.user-info-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  color: oklch(var(--foreground));
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-info-switch-row + .user-info-switch-row {
+  border-top: 1px solid oklch(var(--border));
+}
+
+.user-info-switch-row:hover {
+  background: oklch(var(--foreground) / 0.04);
+}
+
+.user-info-switch-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.user-info-switch-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: oklch(var(--muted) / 0.55);
+  color: oklch(var(--muted-foreground));
+  flex: 0 0 auto;
+}
+
+.user-info-switch-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 13px;
+}
+
+.user-info-switch-copy small {
+  font-size: 11px;
+  color: oklch(var(--muted-foreground));
+}
+
+.user-info-switch {
+  flex: 0 0 auto;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: oklch(var(--input));
+  transition: background-color 0.16s ease;
+}
+
+.user-info-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: oklch(var(--background));
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
+  transition: transform 0.16s ease;
+}
+
+.user-info-switch.is-on {
+  background: oklch(var(--primary));
+}
+
+.user-info-switch.is-on > span {
+  transform: translateX(14px);
+}
+
+.user-info-block-row .user-info-switch-icon {
+  color: oklch(var(--destructive));
+  background: oklch(var(--destructive) / 0.12);
+}
+
+.user-info-block-row.is-blocked .user-info-switch-copy span {
+  color: oklch(var(--destructive));
+}
+
+.user-info-section {
+  margin: 10px 12px 4px;
+}
+
+.user-info-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 2px 6px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: oklch(var(--muted-foreground));
+}
+
+.user-info-section-head small {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.user-info-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: oklch(var(--primary) / 0.12);
+  color: oklch(var(--primary));
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.user-info-media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.user-info-media-tile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: oklch(var(--muted) / 0.5);
+  cursor: pointer;
+}
+
+.user-info-media-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.user-info-media-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(100deg, oklch(var(--muted) / 0.5), oklch(var(--muted) / 0.2));
+}
+
+.user-info-media-play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: oklch(0 0 0 / 0.55);
+  color: #fff;
+}
+
+.user-info-media-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 10px;
+  background: oklch(var(--muted) / 0.35);
+  color: oklch(var(--muted-foreground));
+  font-size: 12px;
+}
+
+.user-info-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-info-file-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-info-file-row:hover {
+  background: oklch(var(--foreground) / 0.05);
+}
+
+.user-info-file-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: oklch(var(--primary) / 0.12);
+  color: oklch(var(--primary));
+  flex: 0 0 auto;
+}
+
+.user-info-file-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.user-info-file-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.user-info-file-copy small {
+  font-size: 10.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.user-info-member-search {
+  margin: 4px 0 8px;
+}
+
+.user-info-member-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 9px;
+  background: oklch(var(--background));
+  color: oklch(var(--muted-foreground));
+}
+
+.user-info-member-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: oklch(var(--foreground));
+  font-size: 12.5px;
+  outline: none;
+}
+
+.user-info-member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.user-info-member-row.is-result {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 5px 6px;
+}
+
+.user-info-member-row.is-result:hover {
+  background: oklch(var(--foreground) / 0.05);
+}
+
+.user-info-member-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.user-info-member-role {
+  font-size: 10px;
+  font-weight: 650;
+  color: oklch(var(--primary));
+  text-transform: uppercase;
+}
+
+.user-info-member-add {
+  flex: 0 0 auto;
+  color: oklch(var(--primary));
+}
+
+.user-info-action-btn.is-danger {
+  background: oklch(var(--destructive));
+  color: oklch(var(--destructive-foreground));
+  border-color: transparent;
+}
+
+/* ── Gift card in the message stream ────────────────────────────────────── */
+
+.msg-gift-row {
+  width: 100%;
+}
+
+.msg-gift-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: min(280px, 100%);
+  padding: 10px;
+  border: 1px solid oklch(var(--primary) / 0.28);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 120% at 100% 0%, oklch(var(--primary) / 0.18), transparent 62%),
+    oklch(var(--card));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.msg-gift-card:hover {
+  border-color: oklch(var(--primary) / 0.5);
+}
+
+.msg-gift-card-media {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: oklch(var(--primary) / 0.12);
+  overflow: hidden;
+}
+
+.msg-gift-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.msg-gift-card-media svg {
+  color: oklch(var(--primary));
+}
+
+.msg-gift-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.msg-gift-card-eyebrow {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: oklch(var(--primary));
+}
+
+.msg-gift-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.msg-gift-card-link {
+  font-size: 11.5px;
+  color: oklch(var(--muted-foreground));
+}
+
+.msg-gift-card .message-meta {
+  pointer-events: none;
+}
+
+/* Shared posts: the card itself is the bubble — calm border, 16px corners. */
+.msg-share-card {
+  border-radius: 16px;
+  border-color: oklch(var(--border));
+  padding: 10px 11px 24px;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.msg-share-card:hover {
+  border-color: oklch(var(--primary) / 0.45);
+  background: oklch(var(--card));
+}
+
+.msg-share-card-image img {
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+/* ── Composer: one action slot, mic ⇄ send ──────────────────────────────── */
+
+.composer-action-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.composer-action-slot .composer-mic,
+.composer-action-slot .send-button {
+  animation: composer-action-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+
+@keyframes composer-action-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-action-slot .composer-mic,
+  .composer-action-slot .send-button,
+  .presence-connection-dot,
+  .messenger-connection-spinner {
+    animation: none;
+  }
+}
+
+/* ── Blocked chat: Telegram's unblock panel instead of the composer ─────── */
+
+.chat-blocked-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid oklch(var(--border));
+  background: oklch(var(--background));
+}
+
+.chat-blocked-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-blocked-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-blocked-copy span {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: oklch(var(--muted-foreground));
+}
+
+.chat-blocked-unblock {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.chat-blocked-unblock:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.chat-blocked-unblock:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 980px) {
+  .chat-blocked-panel {
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px) * 0.6);
+    border-top: 0;
+    background: transparent;
+  }
+
+  .chat-blocked-copy span {
+    display: none;
+  }
 }

@@ -49,7 +49,11 @@ export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | nu
   if (!lastSeenAt) return i18n.t("time.offline");
   const d = new Date(lastSeenAt);
   if (Number.isNaN(d.getTime())) return i18n.t("time.offline");
-  if (Date.now() - d.getTime() <= JUST_NOW_MS) return i18n.t("time.wasOnlineJustNow");
+  const age = Date.now() - d.getTime();
+  if (age <= JUST_NOW_MS) return i18n.t("time.wasOnlineJustNow");
+  // Telegram stops counting days after a week: the exact number is noise, and
+  // "был(а) давно" is also what a hidden (blocked) peer looks like.
+  if (age > 7 * 24 * 60 * 60 * 1000) return i18n.t("time.wasOnlineLongAgo");
   const time = formatDistanceToNow(d, { addSuffix: true, locale: getDateLocale() });
   return i18n.t("time.wasOnline", { time });
 };

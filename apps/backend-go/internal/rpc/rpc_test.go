@@ -568,10 +568,10 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
 	// Hide-avatar gate first: public profile, avatar visible → not hidden.
-	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}).
-			AddRow(userID, false, false, false))
+	mock.ExpectQuery(`SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"}).
+			AddRow(userID, false, false, false, false, false))
 	// Privacy gate: target profile is NOT private, so the history is returned.
 	mock.ExpectQuery(`(?s).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs(userID).
@@ -607,10 +607,10 @@ func TestGetAvatarHistory_PublicHideAvatarHiddenFromGuest(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
-	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}).
-			AddRow(userID, false, true, false))
+	mock.ExpectQuery(`SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"}).
+			AddRow(userID, false, true, false, false, false))
 
 	c, w := testutil.NewRPCPostContext(map[string]string{"user_uuid": userID}, nil)
 	h.GetAvatarHistory(c)

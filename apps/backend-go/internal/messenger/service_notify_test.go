@@ -31,7 +31,7 @@ func TestSendServiceNotification_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO chat_messages")).
 		WithArgs(convID, svcID, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "sent_at"}).AddRow(uuid.New().String(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "event_id", "sent_at"}).AddRow(uuid.New().String(), "101", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE chat_conversations")).
 		WithArgs(sqlmock.AnyArg(), svcID, convID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -63,9 +63,7 @@ func TestSendMessage_ServiceThread_Rejected(t *testing.T) {
 	body := SendMessageRequest{Content: "hello?", ClientID: "c1"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/"+convID+"/messages", body, claims, map[string]string{"id": convID})
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(is_service, false) FROM chat_conversations WHERE id = $1`)).
-		WithArgs(convID).
-		WillReturnRows(sqlmock.NewRows([]string{"is_service"}).AddRow(true))
+	expectServiceConversationAccess(mock, convID, "user-1")
 
 	h.SendMessage(c)
 

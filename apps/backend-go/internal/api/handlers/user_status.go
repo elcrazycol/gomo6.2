@@ -55,8 +55,13 @@ func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
+	// A user who blocked the viewer is never "online" for them.
+	blockedIDs, _ := privacy.HiddenPresenceIDs(h.db, viewerID, onlineUserIDs)
 	filtered := onlineUserIDs[:0]
 	for _, id := range onlineUserIDs {
+		if blockedIDs[id] {
+			continue
+		}
 		if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && !shouldFilter {
 			filtered = append(filtered, id)
 		}
@@ -89,6 +94,12 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
 			viewerID = uc.UserID
 		}
+	}
+	// A block held by the target hides presence unconditionally (and looks
+	// like a long-gone account: an old last-seen, never the real activity time).
+	if blocked, err := privacy.BlockedBy(h.db, userID, viewerID); err == nil && blocked {
+		c.JSON(http.StatusOK, blockedUserStatus(userID))
+		return
 	}
 	if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
 		c.JSON(http.StatusOK, UserStatusResponse{UserID: userID, IsOnline: false})
@@ -219,6 +230,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 	}
 	defer rows.Close()
 
+	blockedIDs, _ := privacy.HiddenPresenceIDs(h.db, viewerID, request.UserIDs)
 	var statuses []UserStatusResponse
 	for rows.Next() {
 		var status UserStatusResponse
@@ -232,6 +244,12 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 			&showStatus,
 		)
 		if err != nil {
+			continue
+		}
+
+		// A block held by the target wins over everything: long-gone account.
+		if blockedIDs[status.UserID] {
+			statuses = append(statuses, blockedUserStatus(status.UserID))
 			continue
 		}
 
@@ -255,6 +273,14 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(statuses))
+}
+
+// blockedUserStatus is the presence a viewer sees for an account that blocked
+// them: offline, with a last-seen older than the client's «был(а) давно»
+// threshold. It must never carry the real last activity.
+func blockedUserStatus(userID string) UserStatusResponse {
+	lastSeen := time.Now().UTC().Add(-blockedLastSeenAge)
+	return UserStatusResponse{UserID: userID, IsOnline: false, LastSeen: &lastSeen}
 }
 
 // showOnlineStatus reports whether userID allows others to see their online
@@ -287,10 +313,16 @@ func (h *UserStatusHandler) bulkStatusFromRedis(c *gin.Context, userIDs []string
 	}
 
 	// M1: private profiles stay visible in the response but with the online
-	// state and last_seen stripped (identical to the SQL path).
+	// state and last_seen stripped (identical to the SQL path). A user who
+	// blocked the viewer looks long offline instead.
+	blockedIDs, _ := privacy.HiddenPresenceIDs(h.db, viewerID, userIDs)
 	result := make([]UserStatusResponse, 0, len(userIDs))
 	fetch := make([]string, 0, len(userIDs))
 	for _, id := range userIDs {
+		if blockedIDs[id] {
+			result = append(result, blockedUserStatus(id))
+			continue
+		}
 		if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && shouldFilter {
 			result = append(result, UserStatusResponse{UserID: id, IsOnline: false})
 		} else {

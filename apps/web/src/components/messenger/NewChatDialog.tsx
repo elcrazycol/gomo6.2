@@ -1,11 +1,14 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Search, X, MessageCircle, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Search, Users } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { UserAvatar } from "@/components/UserAvatar";
 import { storageUrl } from "@/utils/storage";
-import { getInitials } from "./utils";
+import { getInitials, formatPresence } from "./utils";
 import { messengerApi } from "@/services/messengerApi";
 import { apiClient } from "@/integrations/api/client";
 import { useMessengerStore } from "@/stores/messengerStore";
+import { useFriendsStore } from "@/stores/friendsStore";
 
 interface UserSearchResult {
   id: string;
@@ -19,8 +22,19 @@ interface Props {
   onClose: () => void;
 }
 
+type Mode = "list" | "group";
+
+/**
+ * Telegram's "New message" sheet, one click shorter.
+ *
+ * Opening it focuses the search field immediately and already shows the people
+ * the reader is most likely to write to — recent 1:1 chats first, then friends.
+ * A tap on any row opens (or creates) the conversation and closes the sheet, so
+ * starting a chat never goes through a mode chooser. Group creation stays a
+ * quiet secondary row above the list.
+ */
 export function NewChatDialog({ open, onClose }: Props) {
-  const [mode, setMode] = useState<"menu" | "search" | "group">("menu");
+  const [mode, setMode] = useState<Mode>("list");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -28,41 +42,63 @@ export function NewChatDialog({ open, onClose }: Props) {
   const [isCreating, setIsCreating] = useState(false);
   const selectConversation = useMessengerStore((s) => s.selectConversation);
   const createConversation = useMessengerStore((s) => s.createConversation);
+  const conversations = useMessengerStore((s) => s.conversations);
+  const friends = useFriendsStore((s) => s.friends);
+  const fetchFriends = useFriendsStore((s) => s.fetchFriends);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) {
-      setMode("menu");
-      setQuery("");
-      setResults([]);
-      setGroupName("");
-    }
-  }, [open]);
+  const reset = useCallback(() => {
+    setMode("list");
+    setQuery("");
+    setResults([]);
+    setGroupName("");
+    setIsCreating(false);
+  }, []);
 
   useEffect(() => {
-    if (mode !== "search" || !query.trim() || query.length < 1) {
+    if (!open) return;
+    reset();
+    if (friends.length === 0) void fetchFriends();
+  }, [open, reset, fetchFriends, friends.length]);
+
+  // Autofocus on open and whenever the sheet switches back to the list: the
+  // reader's first action is typing a name.
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 30);
+    return () => window.clearTimeout(timer);
+  }, [open, mode]);
+
+  useEffect(() => {
+    if (!open || mode !== "list" || !query.trim()) {
       setResults([]);
       return;
     }
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setIsSearching(true);
-      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`, {
-        credentials: "include",
-        headers: apiClient.getToken() ? { Authorization: `Bearer ${apiClient.getToken()}` } : {},
-      })
-        .then((r) => r.json())
-        .then((res) => setResults(res.data || []))
+      apiClient
+        .request<UserSearchResult[]>(`/api/v1/drops/users/search?q=${encodeURIComponent(query.trim())}`)
+        .then((res) => setResults((res.data ?? []) as UserSearchResult[]))
         .catch(() => setResults([]))
         .finally(() => setIsSearching(false));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, mode]);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [open, mode, query]);
 
-  useEffect(() => {
-    if ((mode === "search" || mode === "group") && open) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [mode, open]);
+  const recents = useMemo(
+    () => conversations.filter((conversation) => !conversation.is_group && !conversation.is_notes && conversation.other_user_id),
+    [conversations],
+  );
+
+  const recentIds = useMemo(
+    () => new Set(recents.map((conversation) => conversation.other_user_id).filter(Boolean)),
+    [recents],
+  );
+
+  const friendsToShow = useMemo(
+    () => friends.filter((friend) => !recentIds.has(friend.user_id)),
+    [friends, recentIds],
+  );
 
   const handleStartChat = useCallback(async (userId: string) => {
     if (isCreating) return;
@@ -94,215 +130,182 @@ export function NewChatDialog({ open, onClose }: Props) {
     }
   }, [groupName, isCreating, selectConversation, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: "15vh",
-      }}
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)" }} />
-
-      {/* Dialog */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "relative",
-          width: 340,
-          maxHeight: "70vh",
-          background: "oklch(var(--card))",
-          border: "1px solid oklch(var(--border))",
-          borderRadius: 12,
-          boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid oklch(var(--border))" }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>
-            {mode === "menu" && "Новый чат"}
-            {mode === "search" && "Найти пользователя"}
-            {mode === "group" && "Новая группа"}
-          </span>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "oklch(var(--muted-foreground))", padding: 2, display: "flex" }}>
-            <X size={16} />
-          </button>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="new-chat-dialog gap-0 overflow-hidden p-0">
+        <div className="new-chat-head">
+          {mode === "group" ? (
+            <button type="button" className="new-chat-back" onClick={() => setMode("list")} aria-label="Назад">
+              <ArrowLeft size={16} />
+            </button>
+          ) : null}
+          <DialogTitle className="new-chat-title">
+            {mode === "group" ? "Новая группа" : "Новый чат"}
+          </DialogTitle>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflow: "auto" }}>
-          {mode === "menu" && (
-            <div style={{ padding: 8 }}>
-              <button
-                type="button"
-                onClick={() => setMode("search")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  padding: "10px 12px",
-                  border: "none",
-                  borderRadius: 8,
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 13,
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              >
-                <MessageCircle size={18} style={{ color: "oklch(var(--primary))" }} />
-                <span>Написать пользователю</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("group")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  padding: "10px 12px",
-                  border: "none",
-                  borderRadius: 8,
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 13,
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              >
-                <Users size={18} style={{ color: "oklch(var(--primary))" }} />
-                <span>Создать группу</span>
-              </button>
-            </div>
-          )}
-
-          {mode === "search" && (
-            <div style={{ padding: "8px 12px 12px" }}>
-              <div style={{ position: "relative", marginBottom: 8 }}>
-                <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "oklch(var(--muted-foreground))" }} />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Имя пользователя..."
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px 8px 34px",
-                    borderRadius: 8,
-                    border: "1px solid oklch(var(--input))",
-                    background: "oklch(var(--background))",
-                    color: "oklch(var(--foreground))",
-                    fontSize: 13,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-              {isSearching && <div style={{ textAlign: "center", padding: 12 }}><PentagramLoader size="sm" /></div>}
-              {!isSearching && query.length >= 1 && results.length === 0 && (
-                <p style={{ textAlign: "center", color: "oklch(var(--muted-foreground))", fontSize: 12, padding: 8 }}>Ничего не найдено</p>
-              )}
-              {results.map((user) => (
-                <button
-                  key={user.id}
-                  type="button"
-                  disabled={isCreating}
-                  onClick={() => handleStartChat(user.id)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    padding: "8px 10px",
-                    border: "none",
-                    borderRadius: 8,
-                    background: "transparent",
-                    cursor: isCreating ? "not-allowed" : "pointer",
-                    textAlign: "left",
-                    opacity: isCreating ? 0.6 : 1,
-                  }}
-                  onMouseEnter={(e) => { if (!isCreating) e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >
-                  <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
-                    {user.avatar_url ? (
-                      <img src={storageUrl("post-images", user.avatar_url) || undefined} alt={user.username} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                    ) : (
-                      <span>{getInitials(user.username)}</span>
-                    )}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{user.display_name || user.username}</div>
-                    <div style={{ fontSize: 11, color: "oklch(var(--muted-foreground))" }}>@{user.username}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {mode === "group" && (
-            <div style={{ padding: "8px 12px 12px" }}>
+        {mode === "list" ? (
+          <>
+            <div className="new-chat-search">
+              <Search size={16} className="new-chat-search-icon" aria-hidden="true" />
               <input
                 ref={inputRef}
-                type="text"
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); }}
-                placeholder="Название группы"
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid oklch(var(--input))",
-                  background: "oklch(var(--background))",
-                  color: "oklch(var(--foreground))",
-                  fontSize: 13,
-                  outline: "none",
-                  boxSizing: "border-box",
-                  marginBottom: 8,
-                }}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Имя, @никнейм или телефон"
+                className="new-chat-search-input"
+                aria-label="Поиск пользователей"
               />
-              <button
-                type="button"
-                onClick={handleCreateGroup}
-                disabled={!groupName.trim() || isCreating}
-                style={{
-                  width: "100%",
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: groupName.trim() ? "oklch(var(--primary))" : "oklch(var(--muted))",
-                  color: groupName.trim() ? "oklch(var(--primary-foreground))" : "oklch(var(--muted-foreground))",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: isCreating || !groupName.trim() ? "not-allowed" : "pointer",
-                }}
-              >
-                {isCreating ? "Создание..." : "Создать"}
-              </button>
-              <p style={{ fontSize: 11, color: "oklch(var(--muted-foreground))", marginTop: 8, textAlign: "center" }}>
-                После создания можно добавить участников
-              </p>
             </div>
-          )}
-        </div>
-      </div>
-    </div>
+
+            <div className="new-chat-body">
+              {!query.trim() && (
+                <button type="button" className="new-chat-group-row" onClick={() => setMode("group")}>
+                  <span className="new-chat-group-icon"><Users size={16} /></span>
+                  <span>Создать группу</span>
+                </button>
+              )}
+
+              {query.trim() ? (
+                <>
+                  {isSearching && <div className="new-chat-loader"><PentagramLoader size="sm" /></div>}
+                  {!isSearching && results.length === 0 && (
+                    <p className="new-chat-empty">Никого не нашли</p>
+                  )}
+                  {results.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      className="new-chat-row"
+                      disabled={isCreating}
+                      onClick={() => void handleStartChat(user.id)}
+                    >
+                      <NewChatAvatar user={user} />
+                      <span className="new-chat-row-copy">
+                        <span className="new-chat-row-name">{user.display_name || user.username}</span>
+                        <span className="new-chat-row-sub">@{user.username}</span>
+                      </span>
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {recents.length > 0 && (
+                    <div className="new-chat-section">Недавние</div>
+                  )}
+                  {recents.map((conversation) => (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      className="new-chat-row"
+                      disabled={isCreating}
+                      onClick={() => {
+                        selectConversation(conversation.id);
+                        onClose();
+                      }}
+                    >
+                      <span className="avatar">
+                        {conversation.other_avatar_url ? (
+                          <UserAvatar
+                            src={conversation.other_avatar_url}
+                            userId={conversation.other_user_id ?? ""}
+                            alt={conversation.other_username || ""}
+                            className="h-full w-full"
+                          />
+                        ) : (
+                          <span>{getInitials(conversation.other_username || "")}</span>
+                        )}
+                      </span>
+                      <span className="new-chat-row-copy">
+                        <span className="new-chat-row-name">
+                          {conversation.other_display_name || conversation.other_username}
+                        </span>
+                        <span className="new-chat-row-sub">
+                          {formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+
+                  {friendsToShow.length > 0 && <div className="new-chat-section">Друзья</div>}
+                  {friendsToShow.map((friend) => (
+                    <button
+                      key={friend.user_id}
+                      type="button"
+                      className="new-chat-row"
+                      disabled={isCreating}
+                      onClick={() => void handleStartChat(friend.user_id)}
+                    >
+                      <span className="avatar">
+                        {friend.avatar_url ? (
+                          <UserAvatar
+                            src={friend.avatar_url}
+                            userId={friend.user_id}
+                            alt={friend.username}
+                            className="h-full w-full"
+                          />
+                        ) : (
+                          <span>{getInitials(friend.username)}</span>
+                        )}
+                      </span>
+                      <span className="new-chat-row-copy">
+                        <span className="new-chat-row-name">{friend.display_name || friend.username}</span>
+                        <span className="new-chat-row-sub">
+                          {friend.is_online ? "в сети" : `@${friend.username}`}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+
+                  {recents.length === 0 && friendsToShow.length === 0 && (
+                    <p className="new-chat-empty">
+                      Начни вводить имя — найдём человека по всему gomo6.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="new-chat-body new-chat-group-body">
+            <label className="new-chat-label" htmlFor="new-chat-group-name">Название группы</label>
+            <input
+              ref={inputRef}
+              id="new-chat-group-name"
+              type="text"
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void handleCreateGroup(); }}
+              placeholder="Например, «Книжный клуб»"
+              className="new-chat-group-input"
+              maxLength={80}
+            />
+            <p className="new-chat-hint">Участников можно добавить сразу после создания.</p>
+            <button
+              type="button"
+              className="new-chat-create"
+              onClick={() => void handleCreateGroup()}
+              disabled={!groupName.trim() || isCreating}
+            >
+              {isCreating ? "Создаём…" : "Создать группу"}
+            </button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewChatAvatar({ user }: { user: UserSearchResult }) {
+  const src = user.avatar_url ? storageUrl("post-images", user.avatar_url) || undefined : undefined;
+  return (
+    <span className="avatar">
+      {src ? (
+        <img src={src} alt={user.username} className="h-full w-full object-cover" />
+      ) : (
+        <span>{getInitials(user.username)}</span>
+      )}
+    </span>
   );
 }

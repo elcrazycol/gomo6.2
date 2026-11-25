@@ -48,13 +48,21 @@ const (
 	// status immediately (before the first delta arrives).
 	MessageTypePresenceSnapshot = "presence_snapshot"
 	// Messenger-specific events
-	MessageTypeMessageEdited   = "message_edited"
-	MessageTypeMessageDeleted  = "message_deleted"
-	MessageTypeMessageReaction = "message_reaction"
-	MessageTypeVoiceListened   = "message_voice_listened"
-	MessageTypeReadReceipt     = "read_receipt"
-	MessageTypeChatTyping      = "chat_typing"
-	MessageTypeSessionRevoked  = "session_revoked"
+	MessageTypeMessageEdited       = "message_edited"
+	MessageTypeMessageDeleted      = "message_deleted"
+	MessageTypeMessageReaction     = "message_reaction"
+	MessageTypeVoiceListened       = "message_voice_listened"
+	MessageTypeReadReceipt         = "read_receipt"
+	MessageTypeDeliveryReceipt     = "delivery_receipt"
+	MessageTypeChatTyping          = "chat_typing"
+	MessageTypeSessionRevoked      = "session_revoked"
+	MessageTypeConversationUpdated = "conversation_updated"
+	// MessageTypeMessengerRefresh tells one user's clients to refetch the
+	// conversation list (a relational change, not a message): blocks and
+	// unblocks change avatars, previews and presence in one sweep. Routed to
+	// the user's own notifications_<id> room (always subscribed while signed
+	// in), never broadcast — the event carries no content.
+	MessageTypeMessengerRefresh = "messenger_refresh"
 
 	// GomoSub text-channel (chat) events — separate from the E2E messenger
 	// pipeline: this content is plaintext and moderatable by design.
@@ -556,23 +564,35 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 		}
 
 	case MessageTypeNewChatMessage:
+		recipients := extractRecipientIDs(payload)
 		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
-		h.broadcastChatEvent(payload, messageBytes, true)
+		messageBytes = stripChatInternalFields(payload, message, messageBytes)
+		h.broadcastChatEventWithRecipients(payload, recipients, messageBytes, true)
 
 	case MessageTypeMessageEdited:
+		recipients := extractRecipientIDs(payload)
 		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
-		h.broadcastChatEvent(payload, messageBytes, false)
+		messageBytes = stripChatInternalFields(payload, message, messageBytes)
+		h.broadcastChatEventWithRecipients(payload, recipients, messageBytes, false)
 
-	case MessageTypeMessageDeleted, MessageTypeMessageReaction, MessageTypeVoiceListened, MessageTypeReadReceipt, MessageTypeChatTyping, "member_left",
+	case MessageTypeMessageDeleted, MessageTypeMessageReaction, MessageTypeVoiceListened, MessageTypeReadReceipt, MessageTypeDeliveryReceipt, MessageTypeChatTyping, "member_left",
 		// Messenger housekeeping events (conversation metadata, notes meta,
 		// reactions). They carry no encrypted content and route to the
 		// conversation room — a reaction delta has to reach the peer in
 		// realtime, not on the next page load.
-		"group_updated", "message_notes_meta":
+		"group_updated", "message_notes_meta", "conversation_updated":
 		// These events don't carry encrypted content
-		h.broadcastChatEvent(payload, messageBytes, false)
+		recipients := extractRecipientIDs(payload)
+		messageBytes = stripChatInternalFields(payload, message, messageBytes)
+		h.broadcastChatEventWithRecipients(payload, recipients, messageBytes, false)
 
 	case MessageTypeNewNotification:
+		if userID := extractRoomID(payload, "user_id"); userID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
+		}
+
+	case MessageTypeMessengerRefresh:
+		// Personal, content-free "refetch your conversations" hint.
 		if userID := extractRoomID(payload, "user_id"); userID != "" {
 			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
 		}
@@ -642,17 +662,49 @@ func decryptChatMessage(payload interface{}, message Message, messageBytes []byt
 	return messageBytes
 }
 
-// broadcastChatEvent publishes a chat event to the conversation room. New
-// messages additionally auto-subscribe bot members so they receive future
-// events.
-func (h *Hub) broadcastChatEvent(payload interface{}, messageBytes []byte, subscribeBots bool) {
-	// Extract conversation_id from payload for chat broadcasting
-	if conversationID := extractRoomID(payload, "conversation_id"); conversationID != "" {
-		chatRoom := fmt.Sprintf("chat_%s", conversationID)
-		h.BroadcastToRoom(chatRoom, messageBytes)
-		if subscribeBots {
-			h.presencePool.Go(func() { h.autoSubscribeBotsToChat(conversationID, chatRoom) })
+func (h *Hub) broadcastChatEventWithRecipients(payload interface{}, recipientIDs []string, messageBytes []byte, subscribeBots bool) {
+	var rooms []string
+	conversationID := extractRoomID(payload, "conversation_id")
+	if conversationID != "" {
+		rooms = append(rooms, fmt.Sprintf("chat_%s", conversationID))
+	}
+	for _, uid := range recipientIDs {
+		if uid != "" {
+			rooms = append(rooms, fmt.Sprintf("messenger_user_%s", uid))
 		}
+	}
+	if len(rooms) > 0 {
+		h.BroadcastToRoomsDedup(rooms, messageBytes)
+	}
+	if subscribeBots && conversationID != "" {
+		chatRoom := fmt.Sprintf("chat_%s", conversationID)
+		h.presencePool.Go(func() { h.autoSubscribeBotsToChat(conversationID, chatRoom) })
+	}
+}
+
+// extractRecipientIDs reads an optional recipient_ids slice from an event payload.
+func extractRecipientIDs(payload interface{}) []string {
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	raw, exists := payloadMap["recipient_ids"]
+	if !exists {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 
@@ -705,7 +757,33 @@ func decryptChatPayloadForBroadcast(payload map[string]interface{}, message Mess
 
 	payload["content"] = decrypted
 	delete(payload, "encrypted_content")
+	delete(payload, "recipient_ids")
 	if newData, err := json.Marshal(payload); err == nil {
+		message.Data = newData
+		if newMessageBytes, err := json.Marshal(message); err == nil {
+			return newMessageBytes
+		}
+	}
+	return messageBytes
+}
+
+// stripChatInternalFields removes routing-only keys (like recipient_ids) before
+// marshaling a non-encrypted chat payload for WebSocket delivery.
+func stripChatInternalFields(payload interface{}, message Message, messageBytes []byte) []byte {
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		return messageBytes
+	}
+	if _, has := payloadMap["recipient_ids"]; !has {
+		return messageBytes
+	}
+	cleaned := make(map[string]interface{}, len(payloadMap))
+	for k, v := range payloadMap {
+		if k != "recipient_ids" {
+			cleaned[k] = v
+		}
+	}
+	if newData, err := json.Marshal(cleaned); err == nil {
 		message.Data = newData
 		if newMessageBytes, err := json.Marshal(message); err == nil {
 			return newMessageBytes
@@ -773,6 +851,9 @@ func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 // isServiceAccount reports whether the user is the notification account.
 // Only consulted for chat-room gates (rare: once per subscription).
 func (h *Hub) isServiceAccount(userID string) bool {
+	if h.db == nil || userID == "" {
+		return false
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	ok, err := authz.IsServiceAccount(ctx, h.db, userID)
@@ -811,12 +892,14 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 	}
 	// The notification account never holds a chat subscription — even with a
 	// hypothetically valid session, no chat room may be joined by it.
-	if strings.HasPrefix(room, "chat_") && h.isServiceAccount(userID) {
+	if (strings.HasPrefix(room, "chat_") || strings.HasPrefix(room, "messenger_user_")) && h.isServiceAccount(userID) {
 		return false
 	}
 	switch {
 	case strings.HasPrefix(room, "notifications_"):
 		return strings.TrimPrefix(room, "notifications_") == userID
+	case strings.HasPrefix(room, "messenger_user_"):
+		return strings.TrimPrefix(room, "messenger_user_") == userID
 	case strings.HasPrefix(room, "chat_"):
 		conversationID := strings.TrimPrefix(room, "chat_")
 		return conversationID != "" && h.isMemberOfConversation(userID, conversationID)
@@ -923,6 +1006,13 @@ func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 // now-playing visibility, so presence events never leak private profiles to
 // strangers (M2/M3).
 func (h *Hub) canViewPresenceRoom(userID, targetID string) bool {
+	// A block held by the target hides their live presence unconditionally —
+	// even from a mutual friend, and even on a public profile.
+	if h.db != nil && userID != targetID {
+		if blocked, err := privacy.BlockedBy(h.db, targetID, userID); err == nil && blocked {
+			return false
+		}
+	}
 	return h.canViewNowPlayingRoom(userID, targetID)
 }
 
@@ -937,6 +1027,11 @@ func (h *Hub) canViewNowPlayingRoom(userID, targetID string) bool {
 	}
 	if userID == targetID {
 		return true
+	}
+	// A block held by the target erases now-playing (and presence, which shares
+	// this predicate) for the blocked viewer on every surface.
+	if blocked, err := privacy.BlockedBy(h.db, targetID, userID); err == nil && blocked {
+		return false
 	}
 	var private bool
 	err := h.db.QueryRow(
@@ -1231,23 +1326,42 @@ func (h *Hub) ForceUnsubscribeFromChatRooms(userID, conversationID string) {
 
 // BroadcastToRoom sends a message to all clients in a specific room
 func (h *Hub) BroadcastToRoom(room string, message []byte) {
+	h.BroadcastToRoomsDedup([]string{room}, message)
+}
+
+// BroadcastToRoomsDedup sends a message to all clients across the given rooms,
+// delivering at most once per client connection even if the client is subscribed
+// to multiple target rooms (e.g. messenger_user_<id> and chat_<convId>).
+func (h *Hub) BroadcastToRoomsDedup(rooms []string, message []byte) {
 	started := time.Now()
 	defer func() { metrics.Messenger.RecordBroadcast(time.Since(started)) }()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	roomClients, ok := h.rooms[room]
-	if !ok {
-		return
+	var seen map[*Client]bool
+	if len(rooms) > 1 {
+		seen = make(map[*Client]bool)
 	}
-	for client := range roomClients {
-		if client.trySend(message) {
-			client.failedSends = 0
+	for _, room := range rooms {
+		roomClients, ok := h.rooms[room]
+		if !ok {
 			continue
 		}
-		client.failedSends++
-		log.Printf("[WebSocket] Client %s send buffer full, disconnecting", client.Username)
-		h.removeClientLocked(client)
+		for client := range roomClients {
+			if seen != nil {
+				if seen[client] {
+					continue
+				}
+				seen[client] = true
+			}
+			if client.trySend(message) {
+				client.failedSends = 0
+				continue
+			}
+			client.failedSends++
+			log.Printf("[WebSocket] Client %s send buffer full, disconnecting", client.Username)
+			h.removeClientLocked(client)
+		}
 	}
 }
 
@@ -1622,6 +1736,89 @@ func (h *Hub) expirePresenceUsers(now time.Time, ttl time.Duration) []string {
 	return members
 }
 
+// blockedPresenceAge is the fake last-seen served for a user who blocked the
+// viewer. It must stay above the client's «был(а) давно» threshold (7 days).
+const blockedPresenceAge = 30 * 24 * time.Hour
+
+// RevokeProfileVisibility removes the viewer's live connections from every room
+// that carries the target's profile content (presence, wall, now-playing,
+// stories). Called when the target blocks the viewer: an already-open profile
+// or chat must stop receiving deltas immediately, not on the next reload.
+func (h *Hub) RevokeProfileVisibility(viewerID, targetID string) {
+	if viewerID == "" || targetID == "" || viewerID == targetID {
+		return
+	}
+	rooms := []string{
+		fmt.Sprintf("presence_%s", targetID),
+		fmt.Sprintf("profile_wall_%s", targetID),
+		fmt.Sprintf("profile_now_playing_%s", targetID),
+		fmt.Sprintf("stories_user_%s", targetID),
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, room := range rooms {
+		roomClients, ok := h.rooms[room]
+		if !ok {
+			continue
+		}
+		for client := range roomClients {
+			if client.UserID != viewerID {
+				continue
+			}
+			delete(roomClients, client)
+			delete(client.Rooms, room)
+		}
+		if len(roomClients) == 0 {
+			delete(h.rooms, room)
+		}
+	}
+}
+
+// SendPresenceSnapshotToUser delivers a presence_snapshot for targetID to every
+// live connection of viewerID. Used right after a block/unblock flips what the
+// viewer may see, so an open chat header/profile updates without navigation.
+// A zero lastSeen omits the field (the client then keeps its previous value).
+func (h *Hub) SendPresenceSnapshotToUser(viewerID, targetID string, online bool, lastSeen time.Time) {
+	if h == nil || viewerID == "" || targetID == "" {
+		return
+	}
+	data := map[string]interface{}{
+		"user_id":   targetID,
+		"is_online": online,
+	}
+	if !lastSeen.IsZero() {
+		data["last_seen"] = lastSeen.Format(time.RFC3339)
+	}
+	msg := Message{
+		Type:      MessageTypePresenceSnapshot,
+		Data:      mustMarshalJSON(data),
+		Timestamp: time.Now().Unix(),
+	}
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients {
+		if client.UserID == viewerID {
+			client.trySend(msgBytes)
+		}
+	}
+}
+
+// PublishMessengerRefresh asks one user's clients to refetch the conversation
+// list. Ids only — no content, no reason.
+func (h *Hub) PublishMessengerRefresh(userID string) error {
+	if userID == "" {
+		return nil
+	}
+	return h.PublishToRedis(RedisChannelChat, RealtimeEvent{
+		Type:    MessageTypeMessengerRefresh,
+		Payload: map[string]string{"user_id": userID},
+	})
+}
+
 // SendPresenceSnapshot pushes the current online state of userID to one
 // client. Called right after a successful presence_<userID> subscription so
 // the viewer sees the status immediately, before any delta arrives. The
@@ -1632,6 +1829,12 @@ func (h *Hub) SendPresenceSnapshot(client *Client, userID string) {
 	}
 	online, lastSeen := h.GetPresenceStatus(userID)
 	if h.db != nil {
+		// A block held by the target outranks every other rule: the viewer sees
+		// a long-gone account, never the real activity time.
+		if blocked, err := privacy.BlockedBy(h.db, userID, client.UserID); err == nil && blocked {
+			online = false
+			lastSeen = time.Now().UTC().Add(-blockedPresenceAge)
+		}
 		var show bool
 		if err := h.db.QueryRow("SELECT COALESCE(show_online_status, true) FROM privacy_settings WHERE user_id = $1", userID).Scan(&show); err == nil && !show {
 			online = false

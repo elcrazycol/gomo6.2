@@ -25,6 +25,12 @@ export type ConversationView = {
    */
   last_read_at?: string | null;
   is_muted: boolean;
+  /** The viewer blocked the peer (1:1 only). Drives the unblock panel instead
+   *  of the composer; the blocked side never receives this flag. */
+  blocked_by_me?: boolean;
+  /** A block exists between the pair (either direction): presence is hidden
+   *  and live online deltas must be ignored for this chat. */
+  presence_hidden?: boolean;
   // 1:1 fields (null for groups)
   other_user_id: string | null;
   other_username: string | null;
@@ -37,11 +43,14 @@ export type ConversationView = {
   /** The peer's read line (their chat_members.last_read_at) — real read
    *  status for the list: ≥ last_message_at means my last message was read. */
   other_last_read_at?: string | null;
+  other_last_delivered_at?: string | null;
   // Group fields
   is_group: boolean;
   group_name: string | null;
   group_avatar_url: string | null;
   member_count: number;
+  /** Encryption mode: "server" (default) or "e2e" (opaque client ciphertext). */
+  encryption_mode?: "server" | "e2e";
   // Personal notes self-chat (client-side E2E encrypted content)
   is_notes?: boolean;
 };
@@ -65,6 +74,13 @@ export type ReactionSummary = {
   mineAt?: string;
 };
 
+export type MessageType = "text" | "media" | "voice" | "gift" | "share" | "system";
+
+export type MessageEnc = {
+  v: number;
+  alg?: string;
+};
+
 export type MessageView = {
   id: string;
   /** Monotonic PostgreSQL BIGINT cursor serialized as a decimal string. */
@@ -73,7 +89,11 @@ export type MessageView = {
   sender_user_id: string;
   sender_username?: string;
   parent_message_id: string | null;
+  type?: MessageType;
   content: string;
+  payload?: Record<string, unknown> | null;
+  /** Client E2E envelope version (v>=1 means opaque `e2e1:` ciphertext). */
+  enc?: MessageEnc | null;
   is_edited: boolean;
   is_deleted: boolean;
   edited_at: string | null;
@@ -97,6 +117,13 @@ export type MessageView = {
   notesTags?: string[];
   // Client-side state
   localStatus?: "sending" | "sent" | "failed";
+  /**
+   * The delete exit is playing: the row is still mounted (so the bubble can
+   * crumble and the list can close the gap smoothly) but it is already gone
+   * from every other read — the store drops it when the animation ends.
+   * See `core/deleteAnimation.ts`.
+   */
+  deleting?: boolean;
 };
 
 export type Attachment = {
@@ -109,6 +136,15 @@ export type Attachment = {
   /** JSON metadata: width, height, preview_key, thumb_hash (and lqip for legacy). */
   meta?: string | null;
   sort_order?: number;
+};
+
+/** One entry of the caller's direct-message block list (blocker-only view). */
+export type BlockedUser = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_url?: string;
+  blocked_at: string;
 };
 
 /** In-flight upload shown as a progress chip in the composer. */

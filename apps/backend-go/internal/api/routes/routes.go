@@ -254,6 +254,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
 	userSettingsHandler := handlers.NewUserSettingsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
+	messengerHandler.SetRedis(redis)
 	// Login alerts through the @gomo6 service thread (phase 1 notifications).
 	// Wired here because messengerHandler is created at this point.
 	// Best-effort: SendServiceNotification logs its own failures, never fatal.
@@ -269,7 +270,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			logsafe.Printf("[ADMIN-SERVICE] login notify failed for user %s: %v", userID, err)
 		}
 	})
-	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	// Content moderation: report filing (any user) + moderator queue/triage.
@@ -297,6 +297,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
+	// Gift messages go through the messenger write path (encryption, preview,
+	// typed envelope, realtime) instead of a raw INSERT of their own.
+	giftsHandler.SetMessenger(messengerHandler)
 	giftAdminHandler := gifts.NewGiftAdminHandler(db)
 	dropsHandler := drops.NewDropsHandler(db)
 	friendsHandler := handlers.NewFriendsHandler(db)
@@ -822,6 +825,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerRead.GET("/messenger/conversations", messengerHandler.ListConversations)
 				messengerRead.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
 				messengerRead.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
+				messengerRead.GET("/messenger/conversations/:id/attachments", messengerHandler.ListSharedAttachments)
+				messengerRead.GET("/messenger/blocks", messengerHandler.ListBlockedUsers)
+				messengerRead.GET("/messenger/keys", messengerHandler.ListMyKeys)
+				messengerRead.GET("/messenger/users/:userId/keys", messengerHandler.GetUserKeys)
 			}
 
 			// Write endpoints — lower rate limit (60 req/min for sends/edits/deletes)
@@ -831,6 +838,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
 				middleware.NewMessengerRateLimiter(redis, 120, 1*time.Minute)))
 			{
+				messengerWrite.POST("/messenger/blocks/:userId", messengerHandler.BlockUser)
+				messengerWrite.DELETE("/messenger/blocks/:userId", messengerHandler.UnblockUser)
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
 				messengerWrite.POST("/messenger/notes", messengerHandler.GetOrCreateNotesConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
@@ -842,7 +851,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerWrite.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
 				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
 				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
+				messengerWrite.PUT("/messenger/conversations/:id/mute", messengerHandler.SetMuted)
 				messengerWrite.DELETE("/messenger/conversations/:id/leave", messengerHandler.LeaveConversation)
+				messengerWrite.POST("/messenger/conversations/:id/encryption", messengerHandler.UpdateEncryptionMode)
+				messengerWrite.PUT("/messenger/keys", messengerHandler.PutDeviceKey)
+				messengerWrite.DELETE("/messenger/keys/:deviceId", messengerHandler.DeleteDeviceKey)
 
 				// Group chats
 				messengerWrite.POST("/messenger/groups", messengerHandler.CreateGroupConversation)

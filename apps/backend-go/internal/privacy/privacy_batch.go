@@ -26,16 +26,36 @@ type ProfileVisibility struct {
 	// public profile with private_hide_stats and the viewer neither the owner
 	// nor a mutual friend.
 	HideStats bool
+	// Blocked means the TARGET blocked the viewer. It is the strongest form of
+	// hiding: everything the profile carries (avatar, background, bio,
+	// counters, presence, all content) is stripped, and the viewer must not
+	// learn that a block is the reason. Implies Filter, HideAvatar, HideStats.
+	Blocked bool
+	// BlockedByMe means the VIEWER blocked the target. It changes nothing about
+	// what the viewer may read (as in Telegram) — it only drives the
+	// «Разблокировать» affordance.
+	BlockedByMe bool
 }
 
 // privacySettingsBatchQuery loads the three visibility flags the profile list
-// needs for every target at once. Missing rows mean "public, nothing hidden",
-// exactly like GetSettings. The explicit ::uuid[] cast keeps lib/pq's text
-// array encoding comparable with the uuid column (same pattern as the emoji
-// resolver's $1::uuid[]).
-const privacySettingsBatchQuery = `SELECT user_id::text, COALESCE(private_profile, false),
-	       COALESCE(private_hide_avatar, false), COALESCE(private_hide_stats, false)
-	FROM privacy_settings WHERE user_id = ANY($1::uuid[])`
+// needs for every target at once, plus the two block directions between the
+// viewer and the target. It selects from users (LEFT JOIN privacy_settings) so
+// a target WITHOUT a privacy_settings row is still present in the result and
+// its block state is not silently lost — the previous privacy_settings-only
+// query could not see a block against a default-settings profile.
+//
+// Missing settings mean "public, nothing hidden", exactly like GetSettings.
+// The explicit ::uuid[] cast keeps lib/pq's text array encoding comparable with
+// the uuid column (same pattern as the emoji resolver's $1::uuid[]). The
+// viewer is NULLIF($2, ”)::uuid so guests bind SQL NULL instead of an invalid
+// empty uuid, and NULL never matches a block row.
+const privacySettingsBatchQuery = `SELECT u.id::text, COALESCE(ps.private_profile, false),
+	       COALESCE(ps.private_hide_avatar, false), COALESCE(ps.private_hide_stats, false),
+	       EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = u.id AND b.blocked_id = NULLIF($2, '')::uuid),
+	       EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = NULLIF($2, '')::uuid AND b.blocked_id = u.id)
+	FROM users u
+	LEFT JOIN privacy_settings ps ON ps.user_id = u.id
+	WHERE u.id = ANY($1::uuid[])`
 
 // mutualFriendBatchQuery returns the (viewer, target) friendship pairs for the
 // targets that need a friend check. friendships enforces user1_id < user2_id,
@@ -86,7 +106,7 @@ func ResolveProfileVisibilityBatch(db *sql.DB, viewerID string, targetIDs []stri
 		return visibility, nil
 	}
 
-	settings, err := loadVisibilitySettings(db, unique)
+	settings, err := loadVisibilitySettings(db, unique, viewerID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +118,13 @@ func ResolveProfileVisibilityBatch(db *sql.DB, viewerID string, targetIDs []stri
 		if viewerID == "" || viewerID == id {
 			continue
 		}
-		ps := settings[id]
+		row := settings[id]
+		if row.Blocked {
+			// A blocked viewer never needs the friendship check: the decision is
+			// already the strongest possible hide.
+			continue
+		}
+		ps := row.Settings
 		if ps.PrivateProfile || ps.PrivateHideAvatar || ps.PrivateHideStats {
 			needsFriend = append(needsFriend, id)
 		}
@@ -113,11 +139,19 @@ func ResolveProfileVisibilityBatch(db *sql.DB, viewerID string, targetIDs []stri
 	}
 
 	for _, id := range unique {
-		ps := settings[id]
+		row := settings[id]
+		ps := row.Settings
+		blockedByMe := row.BlockedByMe
 		switch {
 		case viewerID != "" && viewerID == id:
 			// The owner always sees everything, even on a private profile.
 			visibility[id] = ProfileVisibility{}
+		case row.Blocked:
+			// The target blocked the viewer: Telegram's "empty account" rule.
+			// The whole profile is hidden, and the viewer receives no hint about
+			// why — no Flag, no label. BlockedByMe is false by definition (a
+			// self-block is impossible).
+			visibility[id] = ProfileVisibility{Blocked: true, Filter: true, HideAvatar: true, HideStats: true}
 		case ps.PrivateProfile:
 			// A private profile is fully filtered unless the viewer is a mutual
 			// friend. Anonymous viewers were excluded above and are not friends.
@@ -136,29 +170,43 @@ func ResolveProfileVisibilityBatch(db *sql.DB, viewerID string, targetIDs []stri
 			}
 			visibility[id] = vis
 		}
+		// The viewer's own block is orthogonal to what they may read.
+		if blockedByMe {
+			v := visibility[id]
+			v.BlockedByMe = true
+			visibility[id] = v
+		}
 	}
 
 	return visibility, nil
 }
 
-// loadVisibilitySettings reads the visibility flags of every target in one
-// query. A target with no privacy_settings row is absent from the map and is
-// treated as public with nothing hidden (the GetSettings default).
-func loadVisibilitySettings(db *sql.DB, targetIDs []string) (map[string]Settings, error) {
-	rows, err := db.Query(privacySettingsBatchQuery, pq.Array(targetIDs))
+// visibilityRow is one target's privacy flags plus the block state between the
+// target and the viewer. Embedded Settings keeps the decision code readable.
+type visibilityRow struct {
+	Settings
+	Blocked     bool
+	BlockedByMe bool
+}
+
+// loadVisibilitySettings reads the visibility and block flags of every target
+// in one query. A target with no privacy_settings row is still present (the
+// query selects from users) with the defaults and its real block state.
+func loadVisibilitySettings(db *sql.DB, targetIDs []string, viewerID string) (map[string]visibilityRow, error) {
+	rows, err := db.Query(privacySettingsBatchQuery, pq.Array(targetIDs), viewerID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	settings := make(map[string]Settings, len(targetIDs))
+	settings := make(map[string]visibilityRow, len(targetIDs))
 	for rows.Next() {
 		var id string
-		var ps Settings
-		if err := rows.Scan(&id, &ps.PrivateProfile, &ps.PrivateHideAvatar, &ps.PrivateHideStats); err != nil {
+		var row visibilityRow
+		if err := rows.Scan(&id, &row.PrivateProfile, &row.PrivateHideAvatar, &row.PrivateHideStats, &row.Blocked, &row.BlockedByMe); err != nil {
 			return nil, err
 		}
-		settings[id] = ps
+		settings[id] = row
 	}
 	return settings, rows.Err()
 }

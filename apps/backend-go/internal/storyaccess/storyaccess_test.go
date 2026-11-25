@@ -3,6 +3,7 @@ package storyaccess
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -316,4 +317,31 @@ func TestStoryMediaAccess(t *testing.T) {
 			t.Fatalf("an orphan key must report found=false, got found=%v allowed=%v", found, allowed)
 		}
 	})
+}
+
+// A block held by the story owner must erase their stories everywhere: the
+// per-row visibility predicate and the realtime room gate both learn it.
+func TestStoryVisibility_ExcludesBlocker(t *testing.T) {
+	clause := VisibleCondition("s", "$1")
+	if !strings.Contains(clause, "NOT EXISTS (SELECT 1 FROM user_blocks b") {
+		t.Fatalf("VisibleCondition must exclude a blocker's stories, got: %s", clause)
+	}
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT EXISTS \(\s*SELECT 1 FROM users u`).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	can, err := CanViewUserStories(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if can {
+		t.Fatal("a blocked viewer must not see the owner's stories")
+	}
 }

@@ -385,6 +385,21 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
   deliveries run through `serializeSend` (one at a time **per chat** — otherwise a burst
   lands shuffled) with a 30s lease on the entry so a concurrent flush cannot double-send.
   See [docs/wiki/MESSENGER_OUTBOX.md](docs/wiki/MESSENGER_OUTBOX.md).
+- **Deleted messages leave no trace — never render a tombstone.** Deleting keeps one
+  contentless row (`is_deleted`, empty content/payload/envelope, `parent_message_id`
+  NULL, new `event_id`) as the delta-sync marker only: history (`fetchMessagePage`,
+  `getMessagesByIds`) filters it out, the delta returns it so offline devices learn
+  about the deletion, and the client drops it everywhere (store `withoutDeletedMessages`
+  + the device-local journal `gomo6:deleted-messages:v1`, which also filters the LRU
+  cache and IndexedDB). A new read path that shows messages must filter
+  `is_deleted`/`isMessageDeleted()` too, and no UI may show «Сообщение удалено».
+  The row is **not** removed synchronously: the store flags it `deleting` (every other
+  surface already treats it as gone) and drops it after `DELETE_EXIT_MS` — the bubble
+  crumbles and its row collapses, so the messages above slide down and those below
+  stay put (`components/messenger/core/deleteAnimation.ts`: pieces outside the fading
+  row, one `height` transition, scroll-witness compensation, reduced-motion = instant).
+  Any new UI path that deletes must keep that handshake (`deleteMessage` /
+  `removeMessage` → `finalizeDeletedMessage`), never splice the row out itself.
 - **Channel switching**: `channelSlug` must be in the `loadBoard` effect deps in
   `apps/web/src/pages/Board.tsx`. Missing it = stale threads on channel nav.
 - **Releases**: do NOT bump `VERSION`, edit `CHANGELOG.md` or tag by hand — release-please

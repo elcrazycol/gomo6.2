@@ -353,7 +353,7 @@ function findFirstUnreadKey(
   const boundary = boundaryAt ? Date.parse(boundaryAt) : Number.NEGATIVE_INFINITY;
 
   for (const message of messages) {
-    if (message.is_deleted) continue;
+    if (message.is_deleted || message.deleting) continue;
     if (ownId && message.sender_user_id === ownId) continue;
     if (sentAtMs(message) > boundary) return messageKey(message);
   }
@@ -739,8 +739,9 @@ export const MessageList = memo(
         const key = rows[at].dataset.messageKey;
         const index = key === undefined ? undefined : indexByKeyRef.current.get(key);
         const message = index === undefined ? undefined : messagesRef.current[index];
-        // A deleted message cannot carry a read marker; the prefix rule covers it.
-        if (message && !message.is_deleted) {
+        // A deleted (or currently leaving) message cannot carry a read marker;
+        // the prefix rule covers it.
+        if (message && !message.is_deleted && !message.deleting) {
           if (key != null && key !== lastReadKeyRef.current) {
             lastReadKeyRef.current = key;
             queueMarkRead(id, message.id, message.sent_at);

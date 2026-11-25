@@ -9,12 +9,14 @@ import { giftImageUrl, storageUrl } from "@/utils/storage";
 import { toViewportRect } from "@/utils/domRect";
 import {
   getConversationReadThrough,
+  isMessageDeleted,
   queueMarkDelivered,
   selectSelectedConversation,
+  useDeletedMessagesVersion,
   useMessengerStore,
 } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
-import { formatPresence, getGroupInitials, getInitials, getUserColorClass } from "./utils";
+import { formatPresence, formatTime, getGroupInitials, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
@@ -23,8 +25,10 @@ import { isVoiceUnheard } from "./voice";
 import { MessageList, type MessageListHandle, type MessageRenderExtras } from "./MessageList";
 import { NotesSettingsDialog } from "./NotesSettingsDialog";
 import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
+import { NotesPinnedBanner } from "./NotesPinnedBanner";
+import { messengerApi } from "@/services/messengerApi";
+import { useMessengerConnection } from "@/hooks/useMessengerConnection";
 import { hasNotesKey } from "@/utils/notesCrypto";
-import { isConsecutive } from "./messageListUtils";
 import { chunkAttachments } from "./attachmentAlbum";
 import { uploadFilesAsAttachments } from "./attachmentUpload";
 import { useFileDrop } from "@/hooks/useFileDrop";
@@ -57,8 +61,7 @@ export const ChatView = memo(function ChatView({
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
   const isSending = useMessengerStore((s) => s.isSending);
   const me = useMessengerStore((s) => s.me);
-  const error = useMessengerStore((s) => s.error);
-  const setError = useMessengerStore((s) => s.setError);
+  const connection = useMessengerConnection();
 
   const sendMessage = useMessengerStore((s) => s.sendMessage);
   const editMessage = useMessengerStore((s) => s.editMessage);
@@ -67,10 +70,15 @@ export const ChatView = memo(function ChatView({
   const toggleReaction = useMessengerStore((s) => s.toggleReaction);
   const markVoiceListened = useMessengerStore((s) => s.markVoiceListened);
   const toggleNotesPin = useMessengerStore((s) => s.toggleNotesPin);
+  const setConversationBlockedByMe = useMessengerStore((s) => s.setConversationBlockedByMe);
+  const loadConversations = useMessengerStore((s) => s.loadConversations);
 
   const [pinnedText, setPinnedText] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
+  // Erasures are journaled outside React state; this tick re-runs the banner
+  // cleanup below the moment one lands.
+  const deletedMessagesVersion = useDeletedMessagesVersion();
 
   // The draft belongs to the open conversation, and the state says WHICH
   // conversation it belongs to. That is what makes a switch a single consistent
@@ -110,6 +118,7 @@ export const ChatView = memo(function ChatView({
   const [showNotesInfo, setShowNotesInfo] = useState(false);
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
+  const [unblocking, setUnblocking] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -154,21 +163,33 @@ export const ChatView = memo(function ChatView({
     return [...set].sort((a, b) => a.localeCompare(b, "ru"));
   }, [isNotesChat, messages]);
 
-  // Pinned notes are shown in a dedicated section on top of the chat.
-  // Deleted notes never stay in the curated pinned area.
+  // Pinned notes are shown in a dedicated section on top of the chat. Notes
+  // load page by page like any chat, so an older pinned note is hydrated by id
+  // into `pinnedNotesById` (one bounded request) instead of forcing the whole
+  // history to load. Deleted notes never stay in the curated pinned area.
+  const pinnedNotesById = useMessengerStore((s) => s.pinnedNotes ?? []);
   const pinnedNotes = useMemo(() => {
     if (!isNotesChat) return [] as MessageView[];
-    return messages.filter((m) => m.notesPinned && !m.is_deleted);
-  }, [isNotesChat, messages]);
+    const byId = new Map<string, MessageView>();
+    for (const message of messages) {
+      if (message.notesPinned && !message.is_deleted) byId.set(message.id, message);
+    }
+    for (const message of pinnedNotesById) {
+      if (!message.is_deleted) byId.set(message.id, message);
+    }
+    return [...byId.values()].sort(
+      (left, right) => Date.parse(left.sent_at) - Date.parse(right.sent_at),
+    );
+  }, [isNotesChat, messages, pinnedNotesById]);
 
-  // The main list shows everything except pinned notes, optionally filtered by
-  // the active folder chip.
+  // Notes are a normal chronological list — pinned notes included, exactly like
+  // Telegram keeps a pinned message in its place in the history. The compact
+  // banner above the list is only a shortcut. The folder chip filters the list.
   const visibleMessages = useMemo(() => {
     if (!isNotesChat) return messages;
-    const unpinned = messages.filter((m) => !m.notesPinned);
-    if (notesFolderFilter === null) return unpinned;
-    if (notesFolderFilter === "none") return unpinned.filter((m) => !m.notesFolder);
-    return unpinned.filter((m) => m.notesFolder === notesFolderFilter);
+    if (notesFolderFilter === null) return messages;
+    if (notesFolderFilter === "none") return messages.filter((m) => !m.notesFolder);
+    return messages.filter((m) => m.notesFolder === notesFolderFilter);
   }, [isNotesChat, messages, notesFolderFilter]);
 
   // Reset notes organization UI when switching chats.
@@ -216,13 +237,28 @@ export const ChatView = memo(function ChatView({
     setPendingAttachments([]);
   }, [activeConversationId]);
 
+  // A message that disappears (deleted here or on another device) must not stay
+  // quoted in the composer or open in the editor: the banner would point at
+  // something that no longer exists. The journal is the authority — a message
+  // missing from `messages` merely because it is outside the loaded window is
+  // still a valid reply target.
+  useEffect(() => {
+    if (replyToMessage && isMessageDeleted(replyToMessage.id)) {
+      setReplyToMessage(null);
+    }
+    if (editingMessageId && isMessageDeleted(editingMessageId)) {
+      setEditingMessageId(null);
+      setEditingContent("");
+    }
+  }, [deletedMessagesVersion, replyToMessage, editingMessageId]);
+
   // Mark the last received message delivered when new messages arrive. Read
   // marking is handled by MessageList's visibility tracking (a message is read
   // only while it is actually on screen).
   useEffect(() => {
     if (!me?.id || !conversation || messages.length === 0) return;
     const lastOther = [...messages].reverse().find(
-      (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.localStatus,
+      (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.deleting && !m.localStatus,
     );
     if (lastOther) {
       queueMarkDelivered(conversation.id, lastOther.id, lastOther.sent_at);
@@ -233,13 +269,17 @@ export const ChatView = memo(function ChatView({
   useEffect(() => {
     const pid = conversation?.pinned_message_id;
     if (!pid) { setPinnedText(null); return; }
+    // A deleted pin has no text to show: hide the bar instead of a placeholder
+    // (the server clears pinned_message_id on its side; this covers the frame
+    // before the refreshed conversation lands).
+    if (isMessageDeleted(pid)) { setPinnedText(null); return; }
     const found = messageById.get(pid);
     if (found) {
-      setPinnedText(found.is_deleted ? "[Удалено]" : messengerPlainPreview(found.content));
+      setPinnedText(messengerPlainPreview(found.content));
     } else {
       setPinnedText("[Нажмите чтобы открыть]");
     }
-  }, [conversation?.pinned_message_id, messageById]);
+  }, [conversation?.pinned_message_id, messageById, deletedMessagesVersion]);
 
   // Jump to the pinned message. The list pages older history on demand, so a
   // pin outside the loaded window still resolves.
@@ -247,6 +287,34 @@ export const ChatView = memo(function ChatView({
   const handleJumpToMessage = useCallback((messageId: string) => {
     messageListRef.current?.scrollToMessage(messageId);
   }, []);
+
+  // A pinned note may live outside the active folder filter (the bar is
+  // independent of it): clear the filter first, then scroll on the next frame
+  // so the list already contains the target.
+  const handleJumpToPinnedNote = useCallback((messageId: string) => {
+    setNotesFolderFilter(null);
+    requestAnimationFrame(() => messageListRef.current?.scrollToMessage(messageId));
+  }, []);
+
+  // Telegram's unblock panel replaces the composer while I block the peer.
+  // Unblocking restores the composer and refreshes the list so the real
+  // presence comes back (the server hid it for both sides while blocked).
+  const handleUnblock = useCallback(async () => {
+    if (unblocking) return;
+    const peerId = conversation?.other_user_id;
+    if (!peerId) return;
+    setUnblocking(true);
+    try {
+      await messengerApi.unblockUser(peerId);
+      setConversationBlockedByMe(conversation.id, false);
+      toast.success("Пользователь разблокирован");
+      void loadConversations({ force: true });
+    } catch {
+      toast.error("Не удалось разблокировать");
+    } finally {
+      setUnblocking(false);
+    }
+  }, [unblocking, conversation, setConversationBlockedByMe, loadConversations]);
 
   const handleJumpToPinned = useCallback(() => {
     const pid = conversation?.pinned_message_id;
@@ -334,11 +402,11 @@ export const ChatView = memo(function ChatView({
 
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
-  // A voice note is already uploaded by the recorder; this only sends the
+    // Avoice note is already uploaded by the recorder; this only sends the
   // message that carries it (same path as an attachment, no caption).
   const handleSendVoice = useCallback(async (attachment: Attachment) => {
     const clientId = `c${Date.now().toString(36)}_v${Math.random().toString(36).slice(2, 8)}`;
-    const sentId = await sendMessage(" ", clientId, replyToMessage?.id ?? undefined, [attachment]);
+    const sentId = await sendMessage("", clientId, replyToMessage?.id ?? undefined, [attachment]);
     if (sentId) setReplyToMessage(null);
   }, [sendMessage, replyToMessage]);
 
@@ -360,7 +428,7 @@ export const ChatView = memo(function ChatView({
     const batches = attachmentsToSend.length > 0
       ? chunkAttachments(attachmentsToSend)
       : [[] as Attachment[]];
-    const caption = draft.trim() || " ";
+    const caption = draft.trim();
     const replyTo = replyToMessage?.id ?? undefined;
 
     // Telegram's model: the composer empties at once and the message lives in
@@ -384,7 +452,7 @@ export const ChatView = memo(function ChatView({
       // rejection must never escape as an unhandled one.
       void Promise.resolve(
         sendMessage(
-          index === batches.length - 1 ? caption : " ",
+          index === batches.length - 1 ? caption : "",
           clientId,
           index === 0 ? replyTo : undefined,
           batch.length > 0 ? batch : undefined,
@@ -436,26 +504,28 @@ export const ChatView = memo(function ChatView({
       // identity does not change on every arrival and message rows can be
       // memoized. `renderVersion` below covers the ambient inputs.
       const { dateLabel, isConsecutive: isGrouped, quoted, peerReceipt } = extras;
-      const giftData = parseGiftContent(msg.content);
+      const giftData = parseGiftContent(msg.content, msg.payload);
 
       if (giftData) {
         const imgSrc = giftImageUrl(giftData.imageUrl);
+        // A gift is a message, not a centered banner: it sits in the stream on
+        // the sender's side, in a bubble, with its own timestamp.
         return (
-          <div data-message-id={msg.id}>
+          <div
+            data-message-id={msg.id}
+            className={`bubble-row msg-gift-row${msg.sender_user_id === me.id ? " is-mine" : ""}`}
+          >
             {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
-            <div className="msg-gift-standalone">
-              <div className="msg-gift-standalone-card">
-                <div className="msg-gift-standalone-img">
-                  {imgSrc ? (
-                    <img src={imgSrc} alt={giftData.giftName} />
-                  ) : (
-                    <Gift size={28} />
-                  )}
+            <div className="bubble-row-inner">
+              {conversation.is_group && !isGrouped && msg.sender_user_id !== me.id && msg.sender_username && (
+                <div className={`msg-sender-name ${getUserColorClass(msg.sender_user_id)}`} style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, marginLeft: 4 }}>
+                  {msg.sender_username}
                 </div>
-                <div className="msg-gift-standalone-name">{giftData.giftName}</div>
+              )}
+              <div className="message-bubble">
                 <button
                   type="button"
-                  className="msg-gift-standalone-btn"
+                  className="msg-gift-card"
                   onClick={() => {
                     setGiftDetailId(giftData.giftId);
                     setGiftDetailRecipientId(
@@ -463,8 +533,18 @@ export const ChatView = memo(function ChatView({
                     );
                   }}
                 >
-                  Подробнее
+                  <span className="msg-gift-card-media">
+                    {imgSrc ? <img src={imgSrc} alt={giftData.giftName} /> : <Gift size={26} />}
+                  </span>
+                  <span className="msg-gift-card-copy">
+                    <span className="msg-gift-card-eyebrow">Подарок</span>
+                    <span className="msg-gift-card-name">{giftData.giftName}</span>
+                    <span className="msg-gift-card-link">Посмотреть детали</span>
+                  </span>
                 </button>
+                <div className="message-meta">
+                  <span className="message-time">{formatTime(msg.sent_at)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -610,9 +690,16 @@ export const ChatView = memo(function ChatView({
                 )}
               </div>
               <p className="presence-copy">
-                {conversation.is_notes
+                {connection !== "connected" && !conversation.is_notes ? (
+                  <span className={`presence-connection is-${connection}`}>
+                    <span className="presence-connection-dot" aria-hidden="true" />
+                    {connection === "offline" ? "Нет сети" : "Соединение…"}
+                  </span>
+                ) : conversation.is_notes
                   ? "Шифрование на устройстве"
-                  : typingUsername
+                  : conversation.encryption_mode === "e2e"
+                    ? "🔒 Сквозное шифрование"
+                    : typingUsername
                     ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
                     : conversation.is_group
                       ? `${conversation.member_count} участник${conversation.member_count === 1 ? "" : conversation.member_count < 5 ? "а" : "ов"}`
@@ -638,49 +725,22 @@ export const ChatView = memo(function ChatView({
           </button>
         )}
 
+        {/* Pinned notes: ONE compact row (Telegram's pinned bar), never a
+            section that pushes the conversation down. */}
+        {conversation.is_notes && pinnedNotes.length > 0 && (
+          <NotesPinnedBanner notes={pinnedNotes} onJump={handleJumpToPinnedNote} />
+        )}
       </div>
 
       {/* Messages */}
       <div className="chat-messages-area">
-        {error && (
-          <div className="error-banner chat-error-banner">
-            <span>{error}</span>
-            <button type="button" className="error-dismiss" onClick={() => setError(null)}>×</button>
-          </div>
-        )}
         {conversation.is_notes && !hasNotesKey() && (messages.length > 0 || Boolean(conversation.last_message_at)) && (
           <div className="notes-key-banner">
-            <Lock size={14} />
-            <span>Ключ шифрования не найден на этом устройстве. Заметки можно прочитать, только восстановив ключ из резервной копии.</span>
+            <Lock size={13} />
+            <span>Ключ шифрования недоступен на этом устройстве</span>
             <button type="button" className="notes-key-banner-action" onClick={() => setShowNotesInfo(true)}>
-              Восстановить ключ
+              Ключ
             </button>
-          </div>
-        )}
-        {conversation.is_notes && pinnedNotes.length > 0 && (
-          <div className="notes-pinned-section">
-            <div className="notes-section-heading">
-              <Pin size={12} />
-              <span>Закреплённые</span>
-              <span className="notes-section-count">{pinnedNotes.length}</span>
-            </div>
-            <div className="notes-pinned-list">
-              {pinnedNotes.map((msg, index) => {
-                const prev = index > 0 ? pinnedNotes[index - 1] : null;
-                return (
-                  <div key={msg.id} className="notes-pinned-item">
-                    {renderMessage(msg, prev, {
-                      dateLabel: null,
-                      isConsecutive: isConsecutive(prev, msg),
-                      quoted: msg.parent_message_id
-                        ? messageById.get(msg.parent_message_id) ?? null
-                        : null,
-                      peerReceipt: null,
-                    })}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
         {conversation.is_notes && noteFolders.length > 0 && (
@@ -724,7 +784,7 @@ export const ChatView = memo(function ChatView({
             ) : (
               <div className="notes-filter-empty">
                 <Folder size={18} />
-                <span>{notesFolderFilter !== null ? "В этой папке пока нет заметок" : "Все заметки закреплены"}</span>
+                <span>В этой папке пока нет заметок</span>
               </div>
             )
           ) : (
@@ -746,7 +806,26 @@ export const ChatView = memo(function ChatView({
         )}
       </div>
 
-      {/* Composer */}
+      {/* Composer — or Telegram's unblock panel while I blocked the peer. */}
+      {conversation.blocked_by_me ? (
+        <div className="chat-blocked-panel">
+          <span className="chat-blocked-copy">
+            <strong>
+              Вы заблокировали {conversation.other_display_name
+                || (conversation.other_username ? `@${conversation.other_username}` : "этого пользователя")}
+            </strong>
+            <span>Сообщения и звонки недоступны, пока пользователь заблокирован.</span>
+          </span>
+          <button
+            type="button"
+            className="chat-blocked-unblock"
+            onClick={() => void handleUnblock()}
+            disabled={unblocking}
+          >
+            {unblocking ? "Разблокируем…" : "Разблокировать"}
+          </button>
+        </div>
+      ) : (
       <MessageComposer
         // Keyed by conversation: the composer owns an editor instance, an emoji
         // sheet, a full-mode flag — state that must not survive into another
@@ -773,6 +852,7 @@ export const ChatView = memo(function ChatView({
         onAttachFiles={handleAttachFiles}
         placeholder={conversation.is_notes ? "Запиши мысль..." : undefined}
       />
+      )}
 
       {/* Notes security dialog (self-chat) */}
       <NotesSettingsDialog open={showNotesInfo} onOpenChange={setShowNotesInfo} conversationId={conversation.id} />
@@ -796,6 +876,8 @@ export const ChatView = memo(function ChatView({
           avatarUrl={conversation.other_avatar_url}
           isOnline={conversation.other_is_online}
           lastSeenAt={conversation.other_last_seen_at}
+          isMuted={conversation.is_muted}
+          onJumpToMessage={handleJumpToMessage}
           isGroup={conversation.is_group}
           groupName={conversation.group_name}
           groupAvatarUrl={conversation.group_avatar_url}

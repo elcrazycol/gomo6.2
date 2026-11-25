@@ -46,8 +46,14 @@ const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() 
     setTyping: vi.fn(),
     updateConversationFromWs: vi.fn(),
     loadReceipts: vi.fn(),
+    applyReadReceiptEvent: vi.fn(),
+    applyDeliveryReceiptEvent: vi.fn(),
+    applyConversationUpdatedEvent: vi.fn(),
     applyReactionEvent: vi.fn(),
     applyVoiceListenedEvent: vi.fn(),
+    loadConversations: vi.fn().mockResolvedValue([]),
+    applyPeerBlocked: vi.fn(),
+    loadMessages: vi.fn().mockResolvedValue(undefined),
   };
   const queueMarkDeliveredMock = vi.fn();
   const queueMarkReadMock = vi.fn();
@@ -97,13 +103,34 @@ describe("messengerWebSocket", () => {
       // via useMessengerPresence, not by this legacy global-feed handler.
       expect(mockWsService.on).not.toHaveBeenCalledWith("user_online", expect.any(Function));
       expect(mockWsService.on).not.toHaveBeenCalledWith("user_offline", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("delivery_receipt", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("conversation_updated", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("messenger_refresh", expect.any(Function));
     });
 
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(9);
+      expect(mockWsService.on).toHaveBeenCalledTimes(12);
     });
+  });
+
+  it("reloads conversations on messenger_refresh and erases hidden chats", async () => {
+    storeMocks.loadConversations.mockResolvedValueOnce([
+      { id: "conv-9", presence_hidden: true, is_group: false, is_notes: false },
+      { id: "conv-10", presence_hidden: false, is_group: false, is_notes: false },
+    ]);
+    messengerWs.connect();
+
+    emitToHandlers("messenger_refresh", {});
+
+    await vi.waitFor(() => {
+      expect(storeMocks.loadConversations).toHaveBeenCalledWith({ force: true });
+      expect(storeMocks.applyPeerBlocked).toHaveBeenCalledWith("conv-9");
+    });
+    expect(storeMocks.applyPeerBlocked).not.toHaveBeenCalledWith("conv-10");
+    // The open chat is reloaded so an unblock restores its history instantly.
+    expect(storeMocks.loadMessages).toHaveBeenCalledWith("conv-1");
   });
 
   describe("message handling", () => {
@@ -197,9 +224,43 @@ describe("messengerWebSocket", () => {
       expect(storeMocks.removeMessage).toHaveBeenCalledWith("msg-1");
     });
 
-    it("handles read_receipt", () => {
-      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2", conversation_id: "conv-1" });
-      expect(storeMocks.loadReceipts).toHaveBeenCalledWith("conv-1");
+    it("handles read_receipt in O(1) via applyReadReceiptEvent", () => {
+      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2", conversation_id: "conv-1", read_at: "2025-01-01T00:05:00Z" });
+      expect(storeMocks.applyReadReceiptEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "msg-1",
+        read_at: "2025-01-01T00:05:00Z",
+      });
+      expect(storeMocks.loadReceipts).not.toHaveBeenCalled();
+    });
+
+    it("handles delivery_receipt in O(1)", () => {
+      emitToHandlers("delivery_receipt", { conversation_id: "conv-1", user_id: "u2", message_id: "msg-9", delivered_at: "2025-01-01T00:04:00Z" });
+      expect(storeMocks.applyDeliveryReceiptEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "msg-9",
+        delivered_at: "2025-01-01T00:04:00Z",
+      });
+    });
+
+    it("handles conversation_updated by refetching the list", () => {
+      emitToHandlers("conversation_updated", { conversation_id: "conv-1", encryption_mode: "e2e" });
+      expect(storeMocks.applyConversationUpdatedEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        encryption_mode: "e2e",
+        preview_changed: false,
+      });
+    });
+
+    it("forwards preview_changed on conversation_updated", () => {
+      emitToHandlers("conversation_updated", { conversation_id: "conv-1", preview_changed: true });
+      expect(storeMocks.applyConversationUpdatedEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        encryption_mode: undefined,
+        preview_changed: true,
+      });
     });
 
     it("handles chat_typing", () => {

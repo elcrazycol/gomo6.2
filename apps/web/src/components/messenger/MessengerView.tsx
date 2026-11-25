@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState, type KeyboardEvent as ReactKe
 import { useSearchParams } from "react-router-dom";
 import { motion, animate, useReducedMotion, useTransform } from "motion/react";
 import { useMessengerStore, selectSelectedConversation } from "@/stores/messengerStore";
+import { toast } from "sonner";
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
 import { useMessengerPresence } from "@/hooks/useMessengerPresence";
@@ -53,6 +54,8 @@ export const MessengerView = () => {
   const selectedConversationId = useMessengerStore((s) => s.selectedConversationId);
   const createConversation = useMessengerStore((s) => s.createConversation);
   const typingUsers = useMessengerStore((s) => s.typingUsers);
+  const error = useMessengerStore((s) => s.error);
+  const setError = useMessengerStore((s) => s.setError);
 
   // Refs
   const composerRef = useRef<GomoRichEditorHandle | null>(null);
@@ -80,6 +83,15 @@ export const MessengerView = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Transient messenger errors are a toast, not a banner: a failed action must
+  // not push the conversation list or the messages down. The store keeps one
+  // error slot, so the toast is consumed and cleared immediately.
+  useEffect(() => {
+    if (!error) return;
+    toast.error(error);
+    setError(null);
+  }, [error, setError]);
+
   // Live presence for 1:1 conversation partners (sidebar dots + chat header).
   // Subscribes to their presence rooms and feeds snapshots/deltas into the
   // messenger store.
@@ -92,6 +104,11 @@ export const MessengerView = () => {
     const targetUser = searchParams.get("user");
     if (reqConv) {
       selectConversation(reqConv);
+      // A deep link to a specific chat must land ON that chat on mobile too.
+      // The panel only slides in while the sidebar is closed, and the sidebar
+      // starts open — so a `?conversation=` URL used to show the list (push
+      // notifications and shared chat links looked broken).
+      setSidebarOpen(false);
     } else if (targetUser && targetUser !== "null") {
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
       handleStartChat(targetUser);

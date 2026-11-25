@@ -10,6 +10,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/testutil"
+	"github.com/lib/pq"
 )
 
 var errReactionInsert = errors.New("insert failed")
@@ -42,9 +43,13 @@ func TestFetchReactionsForMessages_EmptyPageShortCircuits(t *testing.T) {
 		t.Fatalf("expected no summaries for an empty page, got %v", summaries)
 	}
 
-	messages := []MessageResponse{}
-	if err := handler.addReactionsToMessages(nil, messages); err != nil {
-		t.Fatalf("expected no error attaching to an empty page, got %v", err)
+	// An empty page short-circuits the extras query too.
+	attachments, reactions, voice, err := handler.fetchMessageExtras(nil, nil, testUser1)
+	if err != nil {
+		t.Fatalf("expected no error for an empty page, got %v", err)
+	}
+	if len(attachments) != 0 || len(reactions) != 0 || len(voice) != 0 {
+		t.Fatalf("expected empty extras, got %v %v %v", attachments, reactions, voice)
 	}
 }
 
@@ -62,9 +67,7 @@ func TestToggleReaction_AddsAndReturnsChips(t *testing.T) {
 	)
 
 	// Membership, message existence.
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -86,7 +89,7 @@ func TestToggleReaction_AddsAndReturnsChips(t *testing.T) {
 		AddRow(testMsg1, "❤️", testUser2, "bob", now.Add(time.Second)).
 		AddRow(testMsg1, "🔥", testUser2, "bob", now.Add(2*time.Second))
 	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at`).
-		WithArgs(testMsg1).
+		WithArgs(pq.Array([]string{testMsg1})).
 		WillReturnRows(reactionRows)
 
 	handler.ToggleReaction(c)
@@ -133,9 +136,7 @@ func TestToggleReaction_Removes(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -144,7 +145,7 @@ func TestToggleReaction_Removes(t *testing.T) {
 		WithArgs(testMsg1, testUser1, "👍").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at`).
-		WithArgs(testMsg1).
+		WithArgs(pq.Array([]string{testMsg1})).
 		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
 
 	handler.ToggleReaction(c)
@@ -176,9 +177,7 @@ func TestToggleReaction_SurfacesInsertFailure(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -209,9 +208,7 @@ func TestToggleReaction_MembershipLookupFails(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnError(errReactionInsert)
+	expectConversationAccessError(mock, testConv1, testUser1, errReactionInsert)
 
 	handler.ToggleReaction(c)
 
@@ -231,9 +228,7 @@ func TestToggleReaction_MessageLookupFails(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnError(errReactionInsert)
@@ -256,9 +251,7 @@ func TestToggleReaction_DeleteFails(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -284,9 +277,7 @@ func TestToggleReaction_ChipsLookupFails(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -294,7 +285,7 @@ func TestToggleReaction_ChipsLookupFails(t *testing.T) {
 		WithArgs(testMsg1, testUser1, "❤️").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at`).
-		WithArgs(testMsg1).
+		WithArgs(pq.Array([]string{testMsg1})).
 		WillReturnError(errReactionInsert)
 
 	handler.ToggleReaction(c)
@@ -315,9 +306,7 @@ func TestToggleReaction_RejectsNonMember(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser999).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectNoConversationAccess(mock, testConv1, testUser999)
 
 	handler.ToggleReaction(c)
 
@@ -337,9 +326,7 @@ func TestToggleReaction_RejectsDeletedMessage(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -362,9 +349,7 @@ func TestToggleReaction_ReplacesTheOldestAtTheCeiling(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -385,7 +370,7 @@ func TestToggleReaction_ReplacesTheOldestAtTheCeiling(t *testing.T) {
 
 	now := time.Now()
 	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at`).
-		WithArgs(testMsg1).
+		WithArgs(pq.Array([]string{testMsg1})).
 		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}).
 			AddRow(testMsg1, "❤️", testUser1, "testuser", now).
 			AddRow(testMsg1, "🎉", testUser1, "testuser", now.Add(time.Second)))
@@ -419,9 +404,7 @@ func TestToggleReaction_SurfacesEvictionFailure(t *testing.T) {
 		map[string]string{"id": testConv1, "msgId": testMsg1},
 	)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))

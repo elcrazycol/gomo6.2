@@ -11,7 +11,7 @@ import { ContentEnter } from "@/components/motion/ContentEnter";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
-import { getProfileCustomization, type ProfileCustomization } from "@/utils/profileCustomization";
+import { dispatchProfileCacheInvalidate, getProfileCustomization, type ProfileCustomization } from "@/utils/profileCustomization";
 import { normalizeProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
 import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -24,6 +24,10 @@ import { ProfileStats } from "./profile/ProfileStats";
 import { ProfileEditPanel } from "./profile/ProfileEditPanel";
 import { ProfileTabs, type ProfileTab } from "./profile/ProfileTabs";
 import { ProfilePinnedThreads } from "./profile/ProfilePinnedThreads";
+import { HiddenProfileView } from "./profile/HiddenProfileView";
+import { messengerApi } from "@/services/messengerApi";
+import { wsService } from "@/services/websocket";
+import { toast } from "sonner";
 import { useOwnerStories } from "@/components/stories/useOwnerStories";
 import { useStoriesStore } from "@/stores/storiesStore";
 import { hasUnreadCloseFriends } from "@/types/stories";
@@ -131,6 +135,10 @@ const Profile = () => {
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
   const [isMutualFriend, setIsMutualFriend] = useState<boolean | null>(null);
   const [privacyChecked, setPrivacyChecked] = useState(false);
+  // The viewer's own block of this profile — drives «Заблокировать» /
+  // «Разблокировать» in the actions menu.
+  const [blockedByMe, setBlockedByMe] = useState(false);
+  const [blockPending, setBlockPending] = useState(false);
   // Effective profile-background display variant — the OWNER's choice, set in
   // the profile studio (profile_customization.background_variant). There is no
   // per-viewer preference anymore.
@@ -233,6 +241,7 @@ const Profile = () => {
       setAvatarUrl(data.avatar_url);
       setLastSeen(data.last_seen_at);
       setIsOnline(data.is_online || false);
+      setBlockedByMe(Boolean(data.blocked_by_me));
     }
 
     const profileId = data?.id ?? "";
@@ -344,12 +353,62 @@ const Profile = () => {
     resolvedUserId ? s.friendStatusMap[resolvedUserId]?.status : undefined,
   );
 
-  const realtimeStatus = useUserRealtimeStatus(resolvedUserId || undefined);
+  const realtimeStatus = useUserRealtimeStatus(
+    resolvedUserId || undefined,
+    !profile?.content_hidden,
+  );
   useEffect(() => {
     if (!realtimeStatus) return;
     setIsOnline(realtimeStatus.is_online);
     if (realtimeStatus.last_seen) setLastSeen(realtimeStatus.last_seen);
   }, [realtimeStatus]);
+
+  // Block / unblock straight from the profile actions menu. The server hides
+  // the block from the other side entirely; here we only flip our own
+  // affordance and refetch the row (presence/avatar are unaffected for the
+  // blocker, as in Telegram).
+  const handleToggleBlock = useCallback(async () => {
+    if (!profile || blockPending) return;
+    const next = !blockedByMe;
+    setBlockPending(true);
+    try {
+      if (next) await messengerApi.blockUser(profile.id);
+      else await messengerApi.unblockUser(profile.id);
+      setBlockedByMe(next);
+      toast.success(next ? "Пользователь заблокирован" : "Пользователь разблокирован");
+      dispatchProfileCacheInvalidate(profile.id);
+      void loadProfile();
+    } catch {
+      toast.error(next ? "Не удалось заблокировать" : "Не удалось разблокировать");
+    } finally {
+      setBlockPending(false);
+    }
+  }, [profile, blockedByMe, blockPending, loadProfile]);
+
+  // A block can happen from the other side while this page is open. Two
+  // signals bring the change without a reload:
+  //   - profile_updated (feed room) — the profile really changed;
+  //   - messenger_refresh (personal room) — a block/unblock, which may arrive
+  //     before this client finished joining the feed room (fresh tab), so the
+  //     personal event is the reliable one.
+  useEffect(() => {
+    if (!profile?.id) return;
+    const profileId = profile.id;
+    const reload = () => {
+      dispatchProfileCacheInvalidate(profileId);
+      void loadProfile();
+    };
+    const offProfile = wsService.on("profile_updated", (message) => {
+      const changed = (message.data as { user_id?: string } | undefined)?.user_id;
+      if (changed && changed !== profileId) return;
+      reload();
+    });
+    const offRefresh = wsService.on("messenger_refresh", reload);
+    return () => {
+      offProfile();
+      offRefresh();
+    };
+  }, [profile?.id, loadProfile]);
 
   // Tab-scoped data (achievements, threads, avatar gallery, gifts) + edit-mode
   // state. Both hooks own their domains; they touch page state only through
@@ -775,6 +834,8 @@ const Profile = () => {
       onEditClick={editing.isEditing ? editing.handleSaveAndExit : editing.startEditing}
       onUsernameClick={() => editing.setShowUsernameDialog(true)}
       onOpenMessages={() => navigate(`/messages?user=${resolvedUserId}`)}
+      blockedByMe={blockedByMe}
+      onToggleBlock={() => void handleToggleBlock()}
       forumMode={forumMode}
       storyCount={storyCount}
       storyReadCount={storyReadCount}
@@ -878,6 +939,10 @@ const Profile = () => {
         )}
         {profile && (
           <ContentEnter>
+          {profile.content_hidden ? (
+            <HiddenProfileView profile={profile} />
+          ) : (
+          <>
           {/* Two-column forum layout: when a side is active, the relocated
               profile panel is rendered as a first-class column and the rest of
               the profile reflows beside it. The AnimatePresence stays mounted
@@ -921,6 +986,8 @@ const Profile = () => {
                         avatarRef={setAvatarOrigin}
                         onOpenMessages={() => navigate(`/messages?user=${resolvedUserId}`)}
                         onEditClick={editing.isEditing ? editing.handleSaveAndExit : editing.startEditing}
+                        blockedByMe={blockedByMe}
+                        onToggleBlock={() => void handleToggleBlock()}
                       />
                     </div>
                   </div>
@@ -1128,6 +1195,8 @@ const Profile = () => {
           </AnimatePresence>
             </div>
           </div>
+          </>
+          )}
           </ContentEnter>
         )}
 

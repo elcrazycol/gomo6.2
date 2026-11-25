@@ -35,6 +35,41 @@ describe("messengerApi", () => {
     } as Response);
   }
 
+  describe("blocks", () => {
+    it("lists the caller's block list", async () => {
+      mockFetch([{ user_id: "u2", username: "bob", display_name: "Bob", blocked_at: "2026-02-01T12:00:00Z" }]);
+
+      const result = await messengerApi.listBlocks();
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/blocks",
+        expect.anything(),
+      );
+      expect(result[0].username).toBe("bob");
+    });
+
+    it("blocks and unblocks with the right verbs", async () => {
+      mockFetch({ blocked: true });
+      await messengerApi.blockUser("u2");
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/messenger/blocks/u2",
+        expect.objectContaining({ method: "POST" }),
+      );
+
+      mockFetch({ blocked: false });
+      await messengerApi.unblockUser("u2");
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/messenger/blocks/u2",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+
+    it("surfaces a refused block (unknown user)", async () => {
+      mockFetch(null, 404);
+      await expect(messengerApi.blockUser("missing")).rejects.toThrow();
+    });
+  });
+
   describe("toggleReaction", () => {
     it("posts the emoji and returns the message's chips", async () => {
       mockFetchRaw({
@@ -61,6 +96,50 @@ describe("messengerApi", () => {
       mockFetch({}, 409);
 
       await expect(messengerApi.toggleReaction("conv-1", "msg-1", "❤️")).rejects.toThrow();
+    });
+  });
+
+  describe("chat panel", () => {
+    it("toggles mute with PUT on the caller's membership", async () => {
+      mockFetch({ muted: true });
+
+      await expect(messengerApi.setMuted("conv-1", true)).resolves.toEqual({ muted: true });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/mute",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ muted: true }),
+        }),
+      );
+    });
+
+    it("lists shared media with an explicit type allow-list", async () => {
+      mockFetch([{ id: "a1", type: "image" }]);
+
+      await messengerApi.listSharedAttachments("conv-1", ["image", "video"], 9);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/attachments?types=image%2Cvideo&limit=9",
+        expect.anything(),
+      );
+    });
+  });
+
+  describe("getMessagesByIds", () => {
+    it("requests exactly the given ids in one bounded call", async () => {
+      mockFetch([]);
+
+      await messengerApi.getMessagesByIds("conv-1", ["m-1", "m-2"]);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/messages?ids=m-1%2Cm-2",
+        expect.anything(),
+      );
+    });
+
+    it("skips the network for an empty list", async () => {
+      await expect(messengerApi.getMessagesByIds("conv-1", [])).resolves.toEqual([]);
+      expect(global.fetch).not.toHaveBeenCalled();
     });
   });
 
@@ -248,6 +327,38 @@ describe("messengerApi", () => {
       mockFetch({ unread_count: 7 });
       const result = await messengerApi.getUnreadCount();
       expect(result).toEqual({ unread_count: 7 });
+    });
+  });
+
+  describe("E2E key directory", () => {
+    it("publishes a device key", async () => {
+      mockFetch({ user_id: "u1", device_id: "d1", public_key: "k", alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" });
+      const result = await messengerApi.putDeviceKey("d1", "k");
+      expect(result.device_id).toBe("d1");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/keys",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ device_id: "d1", public_key: "k", alg: "p256-aesgcm" }) }),
+      );
+    });
+
+    it("fetches a peer's keys", async () => {
+      mockFetch([{ user_id: "u2", device_id: "d9", public_key: "peer", alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" }]);
+      const result = await messengerApi.getUserKeys("u2");
+      expect(result).toHaveLength(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/users/u2/keys",
+        expect.any(Object),
+      );
+    });
+
+    it("switches a conversation to e2e mode", async () => {
+      mockFetch({ encryption_mode: "e2e" });
+      const result = await messengerApi.updateEncryptionMode("conv-1", "e2e");
+      expect(result).toEqual({ encryption_mode: "e2e" });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/encryption",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ mode: "e2e" }) }),
+      );
     });
   });
 

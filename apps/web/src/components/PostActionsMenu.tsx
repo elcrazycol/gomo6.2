@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { BadgeCheck, Flag, MoreVertical } from "lucide-react";
+import { BadgeCheck, Ban, Flag, MoreVertical, ShieldCheck } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -33,6 +33,10 @@ interface PostActionsMenuProps {
   triggerTitle?: string;
   /** Extra classes for the three-dots trigger (e.g. a glass surface on a profile). */
   triggerClassName?: string;
+  /** The viewer blocked this user — the item reads «Разблокировать». */
+  blockedByMe?: boolean;
+  /** Renders a block/unblock item above the report item when provided. */
+  onToggleBlock?: () => void;
 }
 
 /**
@@ -53,12 +57,14 @@ export const PostActionsMenu = ({
   align = "end",
   triggerTitle = "Меню",
   triggerClassName,
+  blockedByMe = false,
+  onToggleBlock,
 }: PostActionsMenuProps) => {
   const [reportOpen, setReportOpen] = useState(false);
   const canReport = Boolean(targetType && targetId);
   const alreadyReported = useIsReported(targetType ?? "", targetId ?? "");
 
-  if (!canReport && !children) return null;
+  if (!canReport && !children && !onToggleBlock) return null;
 
   return (
     <>
@@ -77,8 +83,22 @@ export const PostActionsMenu = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align}>
+          {onToggleBlock && (
+            <DropdownMenuItem
+              onClick={onToggleBlock}
+              className={
+                blockedByMe
+                  ? "text-green-600 focus:bg-green-500/15 focus:text-green-600"
+                  : "text-destructive focus:bg-destructive/15 focus:text-destructive"
+              }
+              title={blockedByMe ? "Разблокировать" : "Заблокировать"}
+            >
+              {blockedByMe ? <ShieldCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+              {blockedByMe ? "Разблокировать" : "Заблокировать"}
+            </DropdownMenuItem>
+          )}
           {children}
-          {children && canReport && <DropdownMenuSeparator />}
+          {(children || onToggleBlock) && canReport && <DropdownMenuSeparator />}
           {canReport &&
             (alreadyReported ? (
               <DropdownMenuItem

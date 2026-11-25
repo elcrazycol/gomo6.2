@@ -354,6 +354,15 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			p.Email = nil
 		}
 		vis := visibility[p.ID]
+		p.BlockedByMe = vis.BlockedByMe
+		if vis.Blocked {
+			// The owner blocked this viewer: identity only, everything else is
+			// gone and presence is collapsed to «был(а) давно». Checked before
+			// the generic private-profile filter, which would otherwise report a
+			// bare "offline" instead of the old last-seen the empty profile shows.
+			hideBlockedProfile(p)
+			continue
+		}
 		if vis.Filter {
 			if vis.HideAvatar {
 				p.AvatarURL = nil
@@ -503,7 +512,12 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		return
 	}
 	vis := visibility[profile.ID]
-	if vis.Filter {
+	profile.BlockedByMe = vis.BlockedByMe
+	if vis.Blocked {
+		// The owner blocked this viewer — see hideBlockedProfile for the exact
+		// shape (identity only, «был(а) давно», no hint of the reason).
+		hideBlockedProfile(&profile)
+	} else if vis.Filter {
 		if vis.HideAvatar {
 			profile.AvatarURL = nil
 			profile.BackgroundURL = nil

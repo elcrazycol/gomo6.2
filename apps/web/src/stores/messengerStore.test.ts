@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { destroyMessenger, queueMarkRead, useMessengerStore, __resetConversationCacheForTests } from "./messengerStore";
+import { destroyMessenger, isMessageDeleted, queueMarkRead, useMessengerStore, __resetConversationCacheForTests, __resetDeletedMessageJournalForTests, __resetRecentMessagesForTests } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { listOutbox, outboxKey, putOutbox, __resetOutboxForTests } from "@/components/messenger/core/outbox";
@@ -10,6 +10,7 @@ import type { ConversationView, MessageView } from "@/components/messenger/types
 vi.mock("@/utils/messengerCache", () => ({
   loadCachedMessages: vi.fn().mockResolvedValue(null),
   saveCachedMessages: vi.fn().mockResolvedValue(undefined),
+  deleteCachedMessages: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/services/messengerApi", () => ({
@@ -17,6 +18,7 @@ vi.mock("@/services/messengerApi", () => ({
     getMyProfile: vi.fn(),
     listConversations: vi.fn(),
     getMessages: vi.fn(),
+    getMessagesByIds: vi.fn().mockResolvedValue([]),
     sendMessage: vi.fn(),
     editMessage: vi.fn(),
     deleteMessage: vi.fn(),
@@ -30,6 +32,11 @@ vi.mock("@/services/messengerApi", () => ({
     updateNotesMeta: vi.fn(),
     getReceipts: vi.fn(),
     getUnreadCount: vi.fn(),
+    getUserKeys: vi.fn().mockResolvedValue([]),
+    listMyKeys: vi.fn().mockResolvedValue([]),
+    putDeviceKey: vi.fn(),
+    deleteDeviceKey: vi.fn(),
+    updateEncryptionMode: vi.fn(),
   },
 }));
 
@@ -83,6 +90,8 @@ describe("messengerStore", () => {
     vi.clearAllMocks();
     destroyMessenger();
     __resetConversationCacheForTests();
+    __resetRecentMessagesForTests();
+    __resetDeletedMessageJournalForTests();
     localStorage.clear();
     vi.mocked(loadCachedMessages).mockResolvedValue(null);
     vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
@@ -162,6 +171,91 @@ describe("messengerStore", () => {
     });
   });
 
+  describe("recent chats (in-memory LRU)", () => {
+    function signedIn(conversations: ConversationView[] = [mockConv({ id: "conv-1" })]) {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "testuser" },
+        conversations,
+        isInitialLoading: false,
+      });
+    }
+
+    it("paints a recent chat synchronously, without a skeleton", async () => {
+      signedIn();
+      vi.mocked(loadCachedMessages).mockResolvedValue([mockMsg({ id: "msg-1" })]);
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+
+      await useMessengerStore.getState().prefetchConversation("conv-1");
+      // Prefetch is local-only: it must never hit the network.
+      expect(messengerApi.getMessages).not.toHaveBeenCalled();
+
+      useMessengerStore.getState().selectConversation("conv-1");
+
+      // Asserted synchronously, before loadMessages' first await resolves: the
+      // messages are already in state, so the first frame is the chat itself.
+      const state = useMessengerStore.getState();
+      expect(state.messages.map((m) => m.id)).toEqual(["msg-1"]);
+      expect(state.isMessagesLoading).toBe(false);
+    });
+
+    it("cold chats still show the skeleton and load from the network", () => {
+      signedIn();
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+
+      useMessengerStore.getState().selectConversation("conv-1");
+
+      const state = useMessengerStore.getState();
+      expect(state.messages).toEqual([]);
+      expect(state.isMessagesLoading).toBe(true);
+    });
+
+    it("prefetches a chat only once", async () => {
+      signedIn();
+      vi.mocked(loadCachedMessages).mockResolvedValue([mockMsg({ id: "msg-1" })]);
+
+      await useMessengerStore.getState().prefetchConversation("conv-1");
+      await useMessengerStore.getState().prefetchConversation("conv-1");
+
+      expect(loadCachedMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps only the five most recently used chats", async () => {
+      const conversations = Array.from({ length: 6 }, (_, index) =>
+        mockConv({ id: `conv-${index + 1}` }),
+      );
+      signedIn(conversations);
+      vi.mocked(loadCachedMessages).mockImplementation(async (_owner, conversationId) => [
+        mockMsg({ id: `msg-${conversationId}`, conversation_id: conversationId }),
+      ]);
+
+      for (const conversation of conversations) {
+        await useMessengerStore.getState().prefetchConversation(conversation.id);
+      }
+
+      // The first (least recently used) chat fell out of the LRU…
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+      useMessengerStore.getState().selectConversation("conv-1");
+      expect(useMessengerStore.getState().messages).toEqual([]);
+      expect(useMessengerStore.getState().isMessagesLoading).toBe(true);
+
+      // …while the newest one still paints synchronously.
+      useMessengerStore.getState().selectConversation("conv-6");
+      expect(useMessengerStore.getState().messages.map((m) => m.id)).toEqual(["msg-conv-6"]);
+    });
+
+    it("drops the cache on logout", async () => {
+      signedIn();
+      vi.mocked(loadCachedMessages).mockResolvedValue([mockMsg({ id: "msg-1" })]);
+      await useMessengerStore.getState().prefetchConversation("conv-1");
+
+      destroyMessenger();
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+      useMessengerStore.getState().selectConversation("conv-1");
+
+      expect(useMessengerStore.getState().messages).toEqual([]);
+    });
+  });
+
   describe("loadMessages", () => {
     it("renders cached messages before the network response", async () => {
       const cached = [mockMsg({ id: "cached-1", content: "Offline copy" })];
@@ -174,6 +268,40 @@ describe("messengerStore", () => {
       expect(loadCachedMessages).toHaveBeenCalledWith("u1", "conv-1");
       expect(useMessengerStore.getState().messages[0].id).toBe("fresh-1");
       expect(saveCachedMessages).toHaveBeenCalledWith("u1", "conv-1", expect.any(Array));
+    });
+
+    it("never paints a cached copy of a message deleted on this device", async () => {
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      // The chat cache still holds the message; the journal already knows it is
+      // gone (this device deleted it, or another device told us so).
+      useMessengerStore.getState().removeMessage("cached-1");
+      vi.mocked(loadCachedMessages).mockResolvedValue([mockMsg({ id: "cached-1", content: "секрет" })]);
+      let release: (messages: MessageView[]) => void = () => {};
+      vi.mocked(messengerApi.getMessages).mockImplementation(
+        () => new Promise<MessageView[]>((resolve) => { release = resolve; }) as never,
+      );
+
+      const pending = useMessengerStore.getState().loadMessages("conv-1");
+      // The network request starts AFTER the warm cache paint, so at this point
+      // the deleted message must already be filtered out of the frame.
+      await vi.waitFor(() => expect(messengerApi.getMessages).toHaveBeenCalled());
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+
+      release([]);
+      await pending;
+    });
+
+    it("filters tombstones out of a server page", async () => {
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "alive", content: "ok" }),
+        mockMsg({ id: "gone", is_deleted: true, content: "" }),
+      ]);
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      // A deletion marker is not history: nothing renders it.
+      expect(useMessengerStore.getState().messages.map((m) => m.id)).toEqual(["alive"]);
     });
 
     it("loads messages and sets loading state", async () => {
@@ -560,18 +688,174 @@ describe("messengerStore", () => {
   });
 
   describe("deleteMessage", () => {
-    it("marks message as deleted", async () => {
+    it("updates the chat list line to the surviving message", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "второе", last_message_sender_id: "u1" })],
+        messages: [
+          mockMsg({ id: "m1", content: "первое", sent_at: "2025-06-01T12:00:00Z", sender_user_id: "u1" }),
+          mockMsg({ id: "m2", content: "второе", sent_at: "2025-06-01T12:01:00Z", sender_user_id: "u1" }),
+        ],
+      });
+
+      await useMessengerStore.getState().deleteMessage("m2");
+
+      // No wait for the server broadcast: the list already shows «первое».
+      const conversation = useMessengerStore.getState().conversations[0];
+      expect(conversation.last_message_preview).toBe("первое");
+      expect(conversation.last_message_at).toBe("2025-06-01T12:00:00Z");
+    });
+
+    it("clears the chat list line when the chat becomes empty", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1" })],
+        messages: [mockMsg({ id: "only", content: "последнее" })],
+      });
+
+      await useMessengerStore.getState().deleteMessage("only");
+
+      const conversation = useMessengerStore.getState().conversations[0];
+      expect(conversation.last_message_preview).toBeNull();
+      expect(conversation.last_message_at).toBeNull();
+      expect(conversation.last_message_sender_id).toBeNull();
+    });
+
+    it("starts the exit at once and drops the row when it ends", async () => {
       useMessengerStore.setState({
         selectedConversationId: "conv-1",
         messages: [mockMsg({ id: "msg-1", content: "Hello" })],
       });
-      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      let release: (value: unknown) => void = () => {};
+      vi.mocked(messengerApi.deleteMessage).mockImplementation(
+        () => new Promise((resolve) => { release = resolve as (value: unknown) => void; }) as never,
+      );
+
+      const pending = useMessengerStore.getState().deleteMessage("msg-1");
+
+      // The row stays mounted for the animation, but it is already leaving…
+      const during = useMessengerStore.getState().messages;
+      expect(during).toHaveLength(1);
+      expect(during[0].deleting).toBe(true);
+      // …and the request does not wait for it.
+      expect(messengerApi.deleteMessage).toHaveBeenCalledWith("conv-1", "msg-1");
+
+      release({ deleted: true });
+      await pending;
+      expect(isMessageDeleted("msg-1")).toBe(true);
+
+      // …until the exit ends and the store removes it for good.
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
+    });
+
+    it("puts the message back when the delete fails", async () => {
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        messages: [mockMsg({ id: "msg-1", content: "Hello" })],
+      });
+      vi.mocked(messengerApi.deleteMessage).mockRejectedValue(new Error("offline"));
 
       await useMessengerStore.getState().deleteMessage("msg-1");
 
-      const msg = useMessengerStore.getState().messages[0];
-      expect(msg.is_deleted).toBe(true);
-      expect(msg.content).toBe("");
+      // The exit plays out, then the row is re-created (a fresh node, so no
+      // half-finished exit styles can hide it).
+      await vi.waitFor(() => {
+        const messages = useMessengerStore.getState().messages;
+        expect(messages).toHaveLength(1);
+        expect(messages[0].deleting).toBeFalsy();
+      }, { timeout: 2000 });
+      const messages = useMessengerStore.getState().messages;
+      expect(messages[0].id).toBe("msg-1");
+      expect(messages[0].content).toBe("Hello");
+      // A failed delete is not remembered as a deletion.
+      expect(isMessageDeleted("msg-1")).toBe(false);
+      expect(useMessengerStore.getState().error).toBe("Не удалось удалить сообщение");
+    });
+
+    it("deleting a bubble whose send is still in flight erases the row the server creates", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+      });
+      let release: (message: MessageView) => void = () => {};
+      vi.mocked(messengerApi.sendMessage).mockImplementation(
+        () => new Promise<MessageView>((resolve) => { release = resolve; }) as never,
+      );
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+
+      const sending = useMessengerStore.getState().sendMessage("исчезни", "client-gone");
+      // The bubble is optimistic, but the request starts after the outbox write:
+      // wait for the send to be genuinely in flight before deleting it.
+      await vi.waitFor(() => expect(messengerApi.sendMessage).toHaveBeenCalled());
+
+      await useMessengerStore.getState().deleteMessage("temp_client-gone");
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+
+      // The request was already on the wire: the row it creates is deleted, and
+      // the bubble never flashes back.
+      release(mockMsg({ id: "server-gone", client_id: "client-gone", content: "исчезни" }));
+      const msgId = await sending;
+
+      expect(msgId).toBe("server-gone");
+      expect(messengerApi.deleteMessage).toHaveBeenCalledWith("conv-1", "server-gone");
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      expect(await listOutbox("u1")).toHaveLength(0);
+    });
+  });
+
+  describe("removeMessage (realtime deletion)", () => {
+    it("plays the same exit as a local delete, then drops the row", async () => {
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "исчезнет" })],
+        pinnedNotes: [mockMsg({ id: "m1", notesPinned: true, content: "пин" })],
+        messages: [
+          mockMsg({ id: "m0", content: "первое", sent_at: "2025-06-01T11:00:00Z" }),
+          mockMsg({ id: "m1", content: "исчезнет", sent_at: "2025-06-01T12:00:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().removeMessage("m1");
+
+      const state = useMessengerStore.getState();
+      // The peer's message crumbles here too: the row is still mounted, flagged.
+      expect(state.messages.map((m) => m.id)).toEqual(["m0", "m1"]);
+      expect(state.messages[1].deleting).toBe(true);
+      expect(state.pinnedNotes).toHaveLength(0);
+      expect(state.conversations[0].last_message_preview).toBe("первое");
+      // Journaled at once: a cache read (warm first frame, offline open) cannot
+      // bring it back while the exit plays.
+      expect(isMessageDeleted("m1")).toBe(true);
+
+      await vi.waitFor(() =>
+        expect(useMessengerStore.getState().messages.map((m) => m.id)).toEqual(["m0"]),
+      );
+    });
+
+    it("never resurrects the message from a late echo", async () => {
+      useMessengerStore.setState({ selectedConversationId: "conv-1", messages: [] });
+
+      useMessengerStore.getState().removeMessage("m1");
+      useMessengerStore.getState().addMessage(mockMsg({ id: "m1", content: "исчезнет" }));
+
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+    });
+
+    it("does not restart the exit of a message the reader is already deleting", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        messages: [mockMsg({ id: "m1" })],
+      });
+
+      await useMessengerStore.getState().deleteMessage("m1");
+      // The server's echo of the same delete must not push the row back.
+      useMessengerStore.getState().removeMessage("m1");
+
+      expect(useMessengerStore.getState().messages).toHaveLength(1);
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
     });
   });
 
@@ -1097,23 +1381,28 @@ describe("messengerStore", () => {
         expect(messengerApi.sendMessage).toHaveBeenCalledTimes(1);
       });
 
-      it("deletes a favorite note matched by decrypted content", async () => {
+      it("deletes a favorite note via the device index without scanning history", async () => {
         useMessengerStore.setState({
-          selectedConversationId: "conv-other",
-          conversations: [mockConv({ id: "conv-other" }), notesConv()],
+          me: { id: "u1", username: "test" },
+          selectedConversationId: null,
+          conversations: [notesConv()],
           messages: [],
         });
-        const payload = await encryptNote(CONTENT, "notes-1");
-        const other = await encryptNote("другая заметка", "notes-1");
-        vi.mocked(messengerApi.getMessages).mockResolvedValue([
-          mockMsg({ id: "m-other", content: other }),
-          mockMsg({ id: "m-fav", content: payload }),
-        ]);
+        vi.mocked(messengerApi.sendMessage).mockImplementation(
+          async (_convId, content) => mockMsg({ id: "m-fav", client_id: "c-fav", content }),
+        );
         vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+
+        await useMessengerStore.getState().createFavoriteNote(CONTENT, { folder: "Избранное" });
+        // The user closed the chat: no messages are loaded anywhere.
+        useMessengerStore.setState({ selectedConversationId: null, messages: [] });
 
         await useMessengerStore.getState().deleteFavoriteNote(CONTENT);
 
         expect(messengerApi.deleteMessage).toHaveBeenCalledWith("notes-1", "m-fav");
+        // The old implementation paged through the whole history, decrypting
+        // every note; the index makes it a single delete.
+        expect(messengerApi.getMessages).not.toHaveBeenCalled();
       });
 
       it("does not create a notes chat when deleting and none exists", async () => {
@@ -1126,15 +1415,121 @@ describe("messengerStore", () => {
         expect(messengerApi.deleteMessage).not.toHaveBeenCalled();
       });
 
-      it("no-ops delete when no note matches", async () => {
+      it("no-ops delete when no note matches and never scans history", async () => {
         useMessengerStore.setState({ conversations: [notesConv()], messages: [] });
-        const other = await encryptNote("чужое", "notes-1");
-        vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg({ id: "m-other", content: other })]);
 
-        await useMessengerStore.getState().deleteFavoriteNote(CONTENT);
+        await useMessengerStore.getState().deleteFavoriteNote("нет такой заметки");
 
         expect(messengerApi.deleteMessage).not.toHaveBeenCalled();
+        expect(messengerApi.getMessages).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe("notes pagination and the pinned strip", () => {
+    function notesConversation(): ConversationView {
+      return mockConv({
+        id: "notes-1",
+        is_notes: true,
+        other_user_id: null,
+        other_username: "",
+        member_count: 1,
+        last_message_preview: null,
+      });
+    }
+
+    function signedIntoNotes() {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConversation()],
+        messages: [],
+      });
+    }
+
+    it("opens notes with a single page, not the whole history", async () => {
+      signedIntoNotes();
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+
+      await useMessengerStore.getState().loadMessages("notes-1");
+
+      // One ordinary page: no `before` cursor loop, no explicit 100-page size.
+      expect(messengerApi.getMessages).toHaveBeenCalledTimes(1);
+      expect(messengerApi.getMessages).toHaveBeenCalledWith("notes-1");
+    });
+
+    it("records pins from a loaded page in the device index", async () => {
+      signedIntoNotes();
+      const wireMeta = await encryptNotesMeta({ pinned: true, folder: null, tags: [] }, "notes-1");
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "m-pinned", content: await encryptNote("важное", "notes-1"), notes_meta: wireMeta }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("notes-1");
+
+      const stored = JSON.parse(localStorage.getItem("gomo6:notes-pins:v1") ?? "{}");
+      expect(stored["notes-1"]).toContain("m-pinned");
+    });
+
+    it("hydrates a pinned note that is beyond the loaded page by id", async () => {
+      signedIntoNotes();
+      localStorage.setItem("gomo6:notes-pins:v1", JSON.stringify({ "notes-1": ["m-old"] }));
+      const wireMeta = await encryptNotesMeta({ pinned: true, folder: "Идеи", tags: ["x"] }, "notes-1");
+      const wireContent = await encryptNote("старая заметка", "notes-1");
+      vi.mocked(messengerApi.getMessagesByIds).mockResolvedValue([
+        mockMsg({ id: "m-old", content: wireContent, notes_meta: wireMeta }),
+      ]);
+
+      await useMessengerStore.getState().loadPinnedNotes("notes-1");
+
+      const pinned = useMessengerStore.getState().pinnedNotes;
+      expect(pinned).toHaveLength(1);
+      expect(pinned[0].id).toBe("m-old");
+      expect(pinned[0].content).toBe("старая заметка");
+      expect(pinned[0].notesPinned).toBe(true);
+      // A single bounded request, and only for the missing id.
+      expect(messengerApi.getMessagesByIds).toHaveBeenCalledWith("notes-1", ["m-old"]);
+    });
+
+    it("does not fetch pins that the loaded page already shows", async () => {
+      signedIntoNotes();
+      useMessengerStore.setState({
+        messages: [mockMsg({ id: "m-pinned", notesPinned: true })],
+      });
+      localStorage.setItem("gomo6:notes-pins:v1", JSON.stringify({ "notes-1": ["m-pinned"] }));
+
+      await useMessengerStore.getState().loadPinnedNotes("notes-1");
+
+      expect(messengerApi.getMessagesByIds).not.toHaveBeenCalled();
+      expect(useMessengerStore.getState().pinnedNotes).toEqual([]);
+    });
+
+    it("prunes ids the server no longer reports as pinned", async () => {
+      signedIntoNotes();
+      localStorage.setItem("gomo6:notes-pins:v1", JSON.stringify({ "notes-1": ["m-gone", "m-live"] }));
+      const wireMeta = await encryptNotesMeta({ pinned: true, folder: null, tags: [] }, "notes-1");
+      // Only one of the two ids comes back — the other was deleted.
+      vi.mocked(messengerApi.getMessagesByIds).mockResolvedValue([
+        mockMsg({ id: "m-live", content: await encryptNote("живая", "notes-1"), notes_meta: wireMeta }),
+      ]);
+
+      await useMessengerStore.getState().loadPinnedNotes("notes-1");
+
+      const stored = JSON.parse(localStorage.getItem("gomo6:notes-pins:v1") ?? "{}");
+      expect(stored["notes-1"]).toEqual(["m-live"]);
+      expect(useMessengerStore.getState().pinnedNotes.map((m) => m.id)).toEqual(["m-live"]);
+    });
+
+    it("unpinning removes the note from the device index", async () => {
+      signedIntoNotes();
+      localStorage.setItem("gomo6:notes-pins:v1", JSON.stringify({ "notes-1": ["m-pinned"] }));
+      useMessengerStore.setState({ messages: [mockMsg({ id: "m-pinned", notesPinned: true })] });
+      vi.mocked(messengerApi.updateNotesMeta).mockResolvedValue({ updated: true });
+
+      await useMessengerStore.getState().toggleNotesPin("m-pinned");
+
+      const stored = JSON.parse(localStorage.getItem("gomo6:notes-pins:v1") ?? "{}");
+      expect(stored["notes-1"]).toBeUndefined();
     });
   });
 
@@ -1168,13 +1563,15 @@ describe("messengerStore", () => {
       expect(msg.is_edited).toBe(true);
     });
 
-    it("removeMessage marks as deleted", () => {
-      useMessengerStore.setState({ messages: [mockMsg({ id: "msg-1" })] });
+    it("removeMessage drops the message for good (no tombstone)", async () => {
+      useMessengerStore.setState({ selectedConversationId: "conv-1", messages: [mockMsg({ id: "msg-1" })] });
 
       useMessengerStore.getState().removeMessage("msg-1");
 
-      const msg = useMessengerStore.getState().messages[0];
-      expect(msg.is_deleted).toBe(true);
+      // The id is journaled immediately, so no cache read can bring the bubble
+      // back; the row itself leaves when its exit ends.
+      expect(isMessageDeleted("msg-1")).toBe(true);
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
     });
 
     it("setTyping adds and removes typing users", () => {
@@ -1221,6 +1618,63 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
     });
 
+    it("ignores a live online delta for a blocked pair (presence hidden)", () => {
+      useMessengerStore.setState({
+        conversations: [
+          mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: false, presence_hidden: true }),
+        ],
+      });
+
+      useMessengerStore.getState().setUserPresence("u2", true, "2026-01-01T00:00:00Z");
+
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      // The peer must keep looking offline: the server hid the presence, and a
+      // stray WS delta cannot undock it.
+      expect(conv.other_is_online).toBe(false);
+      expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
+    });
+
+    it("blocking only flips the composer flag — the peer stays exactly as before", () => {
+      useMessengerStore.setState({
+        conversations: [
+          mockConv({
+            id: "conv-1",
+            other_user_id: "u2",
+            other_is_online: true,
+            other_last_seen_at: "2026-01-01T00:00:00Z",
+            presence_hidden: false,
+            blocked_by_me: false,
+          }),
+        ],
+      });
+
+      useMessengerStore.getState().setConversationBlockedByMe("conv-1", true);
+
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      expect(conv.blocked_by_me).toBe(true);
+      // As in Telegram: the blocked user keeps their avatar, history and real
+      // presence for the blocker. Only the composer turns into the panel.
+      expect(conv.presence_hidden).toBe(false);
+      expect(conv.other_is_online).toBe(true);
+      expect(conv.other_last_seen_at).toBe("2026-01-01T00:00:00Z");
+    });
+
+    it("applyPeerBlocked empties the open chat", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "me" } as never,
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", presence_hidden: true })],
+        selectedConversationId: "conv-1",
+        messages: [{ id: "m1", conversation_id: "conv-1", content: "secret" } as never],
+        hasMoreMessages: true,
+      });
+
+      useMessengerStore.getState().applyPeerBlocked("conv-1");
+
+      const state = useMessengerStore.getState();
+      expect(state.messages).toHaveLength(0);
+      expect(state.hasMoreMessages).toBe(false);
+    });
+
     it("updateConversationFromWs updates conversation fields", () => {
       useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", unread_count: 0 })] });
 
@@ -1245,6 +1699,222 @@ describe("messengerStore", () => {
 
       const c = useMessengerStore.getState().conversations[0];
       expect(c.last_message_preview).toBe("Привет как дела");
+    });
+
+    it("applyReadReceiptEvent updates other_last_read_at and open chat receipts in O(1) without network fetch", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_last_read_at: null })],
+        messages: [
+          mockMsg({ id: "m1", sender_user_id: "u1", sent_at: "2025-06-01T12:00:00Z" }),
+          mockMsg({ id: "m2", sender_user_id: "u1", sent_at: "2025-06-01T12:01:00Z" }),
+          mockMsg({ id: "m3", sender_user_id: "u1", sent_at: "2025-06-01T12:02:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().applyReadReceiptEvent({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "m2",
+        read_at: "2025-06-01T12:01:30Z",
+      });
+
+      const conv = useMessengerStore.getState().conversations[0];
+      expect(conv.other_last_read_at).toBe("2025-06-01T12:01:30Z");
+
+      const receipts = useMessengerStore.getState().receipts.get("conv-1") ?? [];
+      const readMsgIds = receipts.filter((r) => r.read_at != null).map((r) => r.message_id);
+      expect(readMsgIds).toContain("m1");
+      expect(readMsgIds).toContain("m2");
+      expect(readMsgIds).not.toContain("m3");
+      expect(messengerApi.getReceipts).not.toHaveBeenCalled();
+    });
+
+    it("applyDeliveryReceiptEvent updates other_last_delivered_at in O(1) without network fetch", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_last_delivered_at: null })],
+        messages: [
+          mockMsg({ id: "m1", sender_user_id: "u1", sent_at: "2025-06-01T12:00:00Z" }),
+          mockMsg({ id: "m2", sender_user_id: "u1", sent_at: "2025-06-01T12:01:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().applyDeliveryReceiptEvent({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "m1",
+        delivered_at: "2025-06-01T12:00:30Z",
+      });
+
+      const conv = useMessengerStore.getState().conversations[0];
+      expect(conv.other_last_delivered_at).toBe("2025-06-01T12:00:30Z");
+      const receipts = useMessengerStore.getState().receipts.get("conv-1") ?? [];
+      expect(receipts.find((r) => r.message_id === "m1")?.delivered_at).toBe("2025-06-01T12:00:30Z");
+      expect(receipts.find((r) => r.message_id === "m2")?.delivered_at ?? null).toBeNull();
+      expect(messengerApi.getReceipts).not.toHaveBeenCalled();
+    });
+
+    it("applyConversationUpdatedEvent refetches when the preview changed (deleted last message)", async () => {
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([
+        mockConv({ id: "conv-1", last_message_preview: "предыдущее" }),
+      ]);
+      useMessengerStore.setState({
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "удалённое" })],
+      });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({
+        conversation_id: "conv-1",
+        preview_changed: true,
+      });
+      await vi.waitFor(() =>
+        expect(useMessengerStore.getState().conversations[0].last_message_preview).toBe("предыдущее"),
+      );
+    });
+
+    it("applyConversationUpdatedEvent ignores an event with nothing actionable", () => {
+      vi.mocked(messengerApi.listConversations).mockClear();
+      useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1" })] });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({ conversation_id: "conv-1" });
+
+      expect(messengerApi.listConversations).not.toHaveBeenCalled();
+    });
+
+    it("applyConversationUpdatedEvent refetches the list on an encryption mode switch", async () => {
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([mockConv({ id: "conv-1", encryption_mode: "e2e" })]);
+      useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", encryption_mode: "server" })] });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({ conversation_id: "conv-1", encryption_mode: "e2e" });
+      await vi.waitFor(() => expect(useMessengerStore.getState().conversations[0].encryption_mode).toBe("e2e"));
+
+      expect(messengerApi.listConversations).toHaveBeenCalled();
+    });
+  });
+
+  describe("e2e 1:1 conversations", () => {
+    function e2eConv(): ConversationView {
+      return mockConv({ id: "e2e-1", other_user_id: "u2", other_username: "alice", encryption_mode: "e2e" });
+    }
+
+    async function mintPeerKey(): Promise<{ mine: JsonWebKey; peer: JsonWebKey }> {
+      const { ensureE2EDevice, getE2EDevicePublicJwk } = await import("@/utils/messengerCrypto");
+      const mine = (await ensureE2EDevice())!.publicJwk;
+      const storedMine = localStorage.getItem("gomo6:e2e:device:v1");
+      localStorage.clear();
+      const peer = (await ensureE2EDevice())!.publicJwk;
+      localStorage.setItem("gomo6:e2e:device:v1", storedMine!);
+      void getE2EDevicePublicJwk;
+      return { mine, peer };
+    }
+
+    it("decrypts e2e messages on load via the key directory", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      const wire = await encryptE2EMessage("секрет e2e", peer, "e2e-1", "u2");
+
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: wire })]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toBe("секрет e2e");
+      expect(messengerApi.getUserKeys).toHaveBeenCalledWith("u2");
+    });
+
+    it("shows the locked placeholder when the peer key is unknown", async () => {
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([]);
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: "e2e1:p256-aesgcm:QUJD" }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toContain("🔒");
+    });
+
+    it("never persists decrypted e2e content to the IndexedDB cache", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      const wire = await encryptE2EMessage("очень секретно", peer, "e2e-1", "u2");
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: wire }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toBe("очень секретно");
+      expect(saveCachedMessages).not.toHaveBeenCalled();
+    });
+
+    it("decrypts an e2e list preview written by either party", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+
+      // Preview written by ME (sender id = u1).
+      const mine = await encryptE2EMessage("последнее слово", peer, "e2e-1", "u1");
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([
+        mockConv({
+          id: "e2e-1",
+          other_user_id: "u2",
+          encryption_mode: "e2e",
+          last_message_preview: mine,
+          last_message_sender_id: "u1",
+        }),
+      ]);
+      useMessengerStore.setState({ me: { id: "u1", username: "test" } });
+
+      await useMessengerStore.getState().loadConversations({ force: true });
+
+      expect(useMessengerStore.getState().conversations[0].last_message_preview).toBe("последнее слово");
+    });
+
+    it("encrypts outgoing messages with the shared ECDH key, never sending plaintext", async () => {
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.sendMessage).mockImplementation(
+        async (_convId, content, clientId) => mockMsg({ id: "srv-1", conversation_id: "e2e-1", sender_user_id: "u1", client_id: clientId, content }),
+      );
+
+      const msgId = await useMessengerStore.getState().sendMessage("тайна", "client-e2e-1");
+
+      expect(msgId).toBe("srv-1");
+      const wire = vi.mocked(messengerApi.sendMessage).mock.calls[0]![1];
+      expect(wire.startsWith("e2e1:")).toBe(true);
+      expect(wire.includes("тайна")).toBe(false);
+      expect(useMessengerStore.getState().messages[0].content).toBe("тайна");
     });
   });
 

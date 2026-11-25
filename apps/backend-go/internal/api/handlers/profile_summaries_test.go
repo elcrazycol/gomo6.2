@@ -45,8 +45,8 @@ func expectSummaryUsers(mock sqlmock.Sqlmock) *sqlmock.Rows {
 }
 
 func expectSummaryPrivacy(mock sqlmock.Sqlmock) *sqlmock.Rows {
-	rows := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
-	mock.ExpectQuery(`FROM privacy_settings`).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
+	rows := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"})
+	mock.ExpectQuery(`FROM users u`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
 	return rows
 }
 
@@ -232,7 +232,7 @@ func TestGetProfileSummaries_HiddenAvatarIsStripped(t *testing.T) {
 	h, mock := setupSummaryHandler(t)
 
 	expectSummaryUsers(mock).AddRow(summaryTargetID, 42, "alice", nil, "https://cdn/a.png", nil)
-	expectSummaryPrivacy(mock).AddRow(summaryTargetID, true, true, false)
+	expectSummaryPrivacy(mock).AddRow(summaryTargetID, true, true, false, false, false)
 	// A private profile for a signed-in non-friend needs the friendship check.
 	mock.ExpectQuery(`FROM friendships`).
 		WithArgs(summaryViewerID, sqlmock.AnyArg()).

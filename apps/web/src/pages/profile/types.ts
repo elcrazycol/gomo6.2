@@ -33,6 +33,11 @@ export interface Profile {
   last_seen?: string | null;
   /** Raw API column name for the row returned by /profiles. */
   last_seen_at?: string | null;
+  /** The owner blocked the viewer: the row is an identity-only shell and the
+   * page must not render any content (server already stripped it). */
+  content_hidden?: boolean;
+  /** The viewer blocked this profile — drives «Разблокировать». */
+  blocked_by_me?: boolean;
 }
 
 /** Raw user_achievements join row type is re-exported from `@/utils/trophies`. */

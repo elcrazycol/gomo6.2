@@ -1,8 +1,9 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatFileSize, getAttachmentIcon } from "./core/display";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
+import { apiClient } from "@/integrations/api/client";
 import {
   getAttachmentAspectRatio,
   getAttachmentDisplayStyle,
@@ -32,7 +33,14 @@ export interface GiftMessageData {
   imageUrl: string;
 }
 
-export function parseGiftContent(content: string): GiftMessageData | null {
+export function parseGiftContent(content: string, payload?: Record<string, unknown> | null): GiftMessageData | null {
+  if (payload && typeof payload.gift_id === "string" && typeof payload.gift_name === "string") {
+    return {
+      giftId: payload.gift_id,
+      giftName: payload.gift_name,
+      imageUrl: typeof payload.image_url === "string" ? payload.image_url : "",
+    };
+  }
   const match = content.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
   if (!match) return null;
   return { giftId: match[1], giftName: match[2], imageUrl: match[3] };
@@ -72,11 +80,13 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
   const { data: gift } = useQuery({
     queryKey: ["msg-gift-detail", giftId, recipientId],
     queryFn: async (): Promise<GiftDetailItem | null> => {
-      const res = await fetch(`/api/v1/user_gifts?recipient_id=eq.${recipientId}&limit=50`);
-      if (!res.ok) return null;
-      const json = await res.json();
-      const items = json.data || [];
-      return items.find((g: GiftDetailItem) => g.gift_id === giftId) ?? items[0] ?? null;
+      // Same client as everything else: auth, credentials and a 401 refresh are
+      // handled once instead of in each component.
+      const res = await apiClient.request<GiftDetailItem[]>(
+        `/api/v1/user_gifts?recipient_id=eq.${recipientId}&limit=50`,
+      );
+      const items = (res.data ?? []) as GiftDetailItem[];
+      return items.find((g) => g.gift_id === giftId) ?? items[0] ?? null;
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -116,12 +126,17 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
 
 interface MessageContentProps {
   content: string;
+  payload?: Record<string, unknown> | null;
   attachments?: Attachment[];
   hasQuotedMessage?: boolean;
   /** Own messages get the primary-tinted voice player. */
   isMine?: boolean;
   /** An incoming voice note started playing (drops the unheard dot). */
   onVoiceListen?: () => void;
+  /** Invisible inline twin of the time/status pill. It sits at the end of the
+   *  text so normal line breaking reserves the pill's exact width — no DOM
+   *  measurement, no overlap, no second layout pass. */
+  trailingMeta?: ReactNode;
 }
 
 function AttachmentView({
@@ -264,7 +279,7 @@ function AttachmentView({
 }
 
 export const MessageContent = memo(function MessageContent({
-  content, attachments, hasQuotedMessage = false, isMine = false, onVoiceListen,
+  content, payload, attachments, hasQuotedMessage = false, isMine = false, onVoiceListen, trailingMeta,
 }: MessageContentProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -273,18 +288,19 @@ export const MessageContent = memo(function MessageContent({
   // formatting tags, or bare URLs.
   const hasLinks = /https?:\/\//.test(content);
   const hasRichText = /\[(?:b|i|u|s|spoiler|blur|col|size|url|e)[\]:=]/i.test(content) || hasLinks;
-  // Shared posts arrive as a content token; they render as a rich card
-  // instead of the raw token text.
-  const share = parseShareToken(content);
+  // Shared posts arrive as a content token or typed payload; they render as a
+  // rich card instead of raw token text.
+  const share = parseShareToken(content, payload);
   const visualAttachments = useMemo(
     () => attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [],
     [attachments],
   );
   const mediaBatches = useMemo(() => chunkAttachments(visualAttachments), [visualAttachments]);
-  // Link previews must sit in the text stack below the media, never inside a
-  // flush image bubble — formatting alone does not break the media layout.
+  // A caption is part of the photo message: even when it contains a bare link
+  // or formatting, an all-visual message keeps Telegram's media layout (photo
+  // first, caption under it). Previously `hasLinks` pushed it into the text
+  // stack, where the photo shrank below the text like an attachment stub.
   const isMediaMessage = !hasQuotedMessage
-    && !hasLinks
     && visualAttachments.length > 0
     && visualAttachments.length === attachments?.length;
 
@@ -297,7 +313,12 @@ export const MessageContent = memo(function MessageContent({
   }
 
   if (!hasRichText && !hasAttachments) {
-    return <p className="message-content message-content-text whitespace-pre-wrap break-words">{content}</p>;
+    return (
+      <p className="message-content message-content-text whitespace-pre-wrap break-words">
+        {content}
+        {trailingMeta}
+      </p>
+    );
   }
 
   const renderedText = <MessengerRichText text={content} />;
@@ -340,6 +361,7 @@ export const MessageContent = memo(function MessageContent({
   return (
     <div className="message-content message-content-stack whitespace-pre-wrap break-words">
       {renderedText}
+      {trailingMeta}
       {hasAttachments && (
         <div className="msg-attachments">
           {attachments!.map((att, i) => (

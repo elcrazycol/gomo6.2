@@ -177,3 +177,49 @@ describe("ReportDialog (via menu)", () => {
     });
   });
 });
+
+describe("PostActionsMenu — block item", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetReportedTargets();
+  });
+
+  it("offers «Заблокировать» above the report item", async () => {
+    const onToggleBlock = vi.fn();
+    render(
+      <PostActionsMenu
+        targetType="user"
+        targetId="user-1"
+        reportLabel="Пожаловаться на пользователя"
+        onToggleBlock={onToggleBlock}
+      />,
+    );
+
+    await userEvent.click(screen.getByTitle("Меню"));
+    await userEvent.click(await screen.findByTitle("Заблокировать"));
+    expect(onToggleBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads «Разблокировать» and uses the unblock icon when blocked", async () => {
+    const onToggleBlock = vi.fn();
+    render(
+      <PostActionsMenu
+        targetType="user"
+        targetId="user-1"
+        blockedByMe
+        onToggleBlock={onToggleBlock}
+      />,
+    );
+
+    await userEvent.click(screen.getByTitle("Меню"));
+    const item = await screen.findByTitle("Разблокировать");
+    expect(item).toBeInTheDocument();
+    await userEvent.click(item);
+    expect(onToggleBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the trigger with only a block action", () => {
+    render(<PostActionsMenu onToggleBlock={() => {}} />);
+    expect(screen.getByTitle("Меню")).toBeInTheDocument();
+  });
+});

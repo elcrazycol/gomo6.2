@@ -1,9 +1,28 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
+import { memo, useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
+import { runDeleteExit } from "./core/deleteAnimation";
+
+/** The action panel's exit, mirrored in `msg-panel-out` (messenger.css). */
+const MENU_EXIT_MS = 160;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
+import { MessageContentBoundary } from "./ErrorBoundary";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { MessageActionOverlay } from "./MessageActionOverlay";
 import type { MessageView } from "./types";
@@ -106,8 +125,13 @@ export const MessageBubble = memo(function MessageBubble({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
-  const [hasMeasuredLines, setHasMeasuredLines] = useState(false);
+  // A failed send is a property of ONE message. Its retry/delete menu must not
+  // open the full action panel or shift the bubble.
+  const [failedMenuOpen, setFailedMenuOpen] = useState(false);
+  // Deleting is the one irreversible action in the panel: it asks once, in a
+  // compact dialog. Radix focuses «Отмена» (the least destructive action), so
+  // Esc or Enter both cancel and only an explicit «Удалить» erases.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const rowInnerRef = useRef<HTMLDivElement | null>(null);
@@ -138,6 +162,10 @@ export const MessageBubble = memo(function MessageBubble({
   // handlers (which fire outside React's synthetic pipeline) never race a
   // stale closure.
   const [menuOpen, setMenuOpen] = useState(false);
+  // The panel is still mounted while it glides down after an action is chosen
+  // (it leaves the way it arrived instead of blinking out).
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuCloseTimerRef = useRef<number | null>(null);
   const menuOpenRef = useRef(false);
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
   // Whether the composer's editing surface was engaged when the panel opened
@@ -163,7 +191,21 @@ export const MessageBubble = memo(function MessageBubble({
     return activeInComposer || sheetOpen;
   };
 
+  const finishMenuClose = useCallback(() => {
+    if (menuCloseTimerRef.current !== null) {
+      clearTimeout(menuCloseTimerRef.current);
+      menuCloseTimerRef.current = null;
+    }
+    setMenuOpen(false);
+    setMenuClosing(false);
+  }, []);
+
   const openMenu = useCallback(() => {
+    if (menuCloseTimerRef.current !== null) {
+      clearTimeout(menuCloseTimerRef.current);
+      menuCloseTimerRef.current = null;
+    }
+    setMenuClosing(false);
     composerEngagedRef.current = hasComposerEngaged(
       rowInnerRef.current?.closest(".chat-panel") ?? null,
     );
@@ -171,12 +213,22 @@ export const MessageBubble = memo(function MessageBubble({
     setMenuOpen(true);
   }, []);
 
-  const dismissMenu = useCallback(() => {
+  /**
+   * `animate` is for an action chosen IN the panel: the panel glides down the
+   * way it came in and is unmounted when the exit ends. Outside taps, Escape
+   * and scroll stay instant — the reader is already looking elsewhere.
+   */
+  const dismissMenu = useCallback((options?: { animate?: boolean }) => {
     if (!menuOpenRef.current) return;
     menuOpenRef.current = false;
     clearLongPress();
-    setMenuOpen(false);
-  }, [clearLongPress]);
+    if (!options?.animate || prefersReducedMotion()) {
+      finishMenuClose();
+      return;
+    }
+    setMenuClosing(true);
+    menuCloseTimerRef.current = window.setTimeout(finishMenuClose, MENU_EXIT_MS);
+  }, [clearLongPress, finishMenuClose]);
 
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
@@ -457,7 +509,31 @@ export const MessageBubble = memo(function MessageBubble({
 
   useEffect(() => () => {
     if (floatTimerRef.current) clearTimeout(floatTimerRef.current);
+    if (menuCloseTimerRef.current !== null) clearTimeout(menuCloseTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!failedMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".message-failed")) return;
+      setFailedMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [failedMenuOpen]);
+
+  // The delete exit: the bubble crumbles and the row collapses while the store
+  // holds it in the list (see `core/deleteAnimation`). The row is dropped by the
+  // store when the exit ends, so there is nothing to clean up here.
+  const deleting = Boolean(message.deleting);
+  useEffect(() => {
+    if (!deleting) return;
+    const bubble = messageBubbleRef.current;
+    const row = bubble?.closest<HTMLElement>(".message-item");
+    if (!bubble || !row) return;
+    runDeleteExit({ row, bubble, seed: message.id });
+  }, [deleting, message.id]);
 
   // The long-press panel applies a reaction and closes: the chip under the
   // message is the result, so the panel has nothing left to say.
@@ -480,73 +556,41 @@ export const MessageBubble = memo(function MessageBubble({
     && hasVisualAttachments
     && message.attachments?.every((attachment) => attachment.type === "image" || attachment.type === "video");
 
-  // Measure the actual rendered line count so every one-line message gets the
-  // compact inline timestamp, regardless of its character length.
   // A shared post (__SHARE__) renders a full-height card instead of text: line
   // measurement does not apply, and the card reserves its own meta space, so
-  // skip the whole compact/multiline path for it.
-  const isShareMessage = message.content?.startsWith("__SHARE__") ?? false;
+  // skip the whole inline-meta path for it.
+  const isShareMessage = message.type === "share" || (message.content?.startsWith("__SHARE__") ?? false);
   const canUseInlineMeta = !isVoiceBubble
     && !isMediaBubble
     && !isShareMessage
     && !message.attachments?.length
     && message.localStatus !== "failed";
 
-  useLayoutEffect(() => {
-    const bubble = messageBubbleRef.current;
-    if (!bubble || !canUseInlineMeta) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    // Plain-text messages render a `.message-content-text` <p>; emoji / rich-text
-    // messages render a `.message-content-stack` <div>. Both carry the shared
-    // `.message-content` class, so measuring that one class covers every
-    // single-line case and keeps the time/status pill from overlapping the
-    // last emoji (or link) the way it used to.
-    const content = bubble.querySelector<HTMLElement>(".message-content");
-    if (!content) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    const measureLines = () => {
-      // Measure the text without the metadata/spacer affecting its wrapping.
-      bubble.classList.add("is-measuring");
-      void bubble.offsetWidth;
-      const range = document.createRange();
-
-      try {
-        range.selectNodeContents(content);
-        if (typeof range.getClientRects !== "function") {
-          // JSDOM has no layout engine; keep the safe multiline layout there.
-          setIsCompact((previous) => previous ? false : previous);
-          setHasMeasuredLines((previous) => previous ? previous : true);
-          return;
-        }
-
-        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-        const lineTops = new Set(rects.map((rect) => Math.round(rect.top)));
-        const nextIsCompact = rects.length > 0 && lineTops.size <= 1;
-        setIsCompact((previous) => previous === nextIsCompact ? previous : nextIsCompact);
-        setHasMeasuredLines((previous) => previous ? previous : true);
-      } finally {
-        range.detach?.();
-        bubble.classList.remove("is-measuring");
-      }
-    };
-
-    measureLines();
-    const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(measureLines)
-      : null;
-    resizeObserver?.observe(bubble);
-    resizeObserver?.observe(content);
-
-    return () => resizeObserver?.disconnect();
-  }, [canUseInlineMeta, message.content, message.attachments?.length, message.is_edited, peerReadAt, peerDeliveredAt, isMine]);
+  // Telegram Web's layout trick, with zero DOM reads: the timestamp/status pill
+  // is rendered TWICE — once invisible, inline at the end of the text, where
+  // the browser's own line breaking reserves exactly its width; and once
+  // visible, absolutely positioned at the bubble's bottom-right. The text can
+  // never run under the pill, and nothing is measured: no forced reflow
+  // (`offsetWidth`), no Range.getClientRects, no per-bubble ResizeObserver and
+  // no second layout pass after mount.
+  const metaChildren = (
+    <>
+      {/* Telegram's media-unread dot: an incoming voice note nobody has
+          listened to yet. It disappears on the first playback. */}
+      {voiceUnheard && (
+        <span
+          className="message-unheard-dot"
+          role="img"
+          aria-label={isMine ? "Собеседник ещё не прослушал" : "Не прослушано"}
+        />
+      )}
+      <span className="message-time">{formatTime(message.sent_at)}</span>
+      {message.is_edited && <span className="edited-label">изм.</span>}
+      {isMine && (
+        <span className="message-status">{getStatusIcon()}</span>
+      )}
+    </>
+  );
 
   // The floated action layer renders into the same chat surface the blur
   // lives on; both refs are guaranteed set by the time a user gesture opens
@@ -555,22 +599,16 @@ export const MessageBubble = memo(function MessageBubble({
   const hostBubbleEl = menuOpen ? messageBubbleRef.current : null;
 
   if (message.is_deleted) {
-    return (
-      <div
-        className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
-        onDoubleClick={handleRowDoubleClick}
-        onPointerUp={handleRowPointerUp}
-      >
-        <div className="message-bubble deleted-bubble">
-          <em>Сообщение удалено</em>
-        </div>
-      </div>
-    );
+    // Deleted messages never reach the list (the store drops them and the
+    // server only returns them to delta sync as contentless tombstones), so
+    // there is nothing to render — a «Сообщение удалено» plate would be a
+    // trace of something the reader asked to erase.
+    return null;
   }
 
   return (
     <div
-      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
+      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}${deleting ? " is-deleting" : ""}`}
       onDoubleClick={handleRowDoubleClick}
       onPointerUp={handleRowPointerUp}
     >
@@ -599,7 +637,7 @@ export const MessageBubble = memo(function MessageBubble({
             in the overlay below. */}
         <div
           ref={messageBubbleRef}
-          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact && !isMediaBubble ? " is-multiline" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
+          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && (message.attachments?.length ?? 0) > 1 ? " is-media-album" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
           data-message-id={message.id}
           onContextMenu={(e) => { e.preventDefault(); openMenu(); }}
         >
@@ -611,11 +649,9 @@ export const MessageBubble = memo(function MessageBubble({
                   {quotedMessage.sender_user_id === message.sender_user_id ? "Вы" : "Собеседник"}
                 </span>
                 <span className="quoted-text">
-                  {quotedMessage.is_deleted
-                    ? "Сообщение удалено"
-                    : quotedMessage.attachments?.some((attachment) => isVoiceAttachment(attachment))
-                      ? "Голосовое сообщение"
-                      : messengerPlainPreview(quotedMessage.content)}
+                  {quotedMessage.attachments?.some((attachment) => isVoiceAttachment(attachment))
+                    ? "Голосовое сообщение"
+                    : messengerPlainPreview(quotedMessage.content)}
                 </span>
               </>
             );
@@ -637,40 +673,70 @@ export const MessageBubble = memo(function MessageBubble({
             );
           })()}
 
+          <MessageContentBoundary>
+            <MessageContent
+              content={message.content}
+              payload={message.payload}
+              attachments={message.attachments}
+              hasQuotedMessage={Boolean(quotedMessage)}
+              isMine={isMine}
+              onVoiceListen={onVoiceListen}
+              trailingMeta={canUseInlineMeta ? (
+                <span className="message-meta-reserve" aria-hidden="true">
+                  {metaChildren}
+                </span>
+              ) : undefined}
+            />
+          </MessageContentBoundary>
+
           {message.localStatus === "failed" && (
-            <div className="message-error-header">
-              <RefreshCw size={11} />
-              <span>Не отправлено</span>
-              <button type="button" className="retry-button" onClick={() => onRetry(message)} title="Повторить">
-                Повторить
+            <div className="message-failed">
+              <button
+                type="button"
+                className="message-failed-dot"
+                aria-label="Сообщение не отправлено"
+                aria-haspopup="menu"
+                aria-expanded={failedMenuOpen}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFailedMenuOpen((open) => !open);
+                }}
+              >
+                !
               </button>
+              {failedMenuOpen && (
+                <div className="message-failed-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setFailedMenuOpen(false);
+                      onRetry(message);
+                    }}
+                  >
+                    <RefreshCw size={13} />
+                    Повторить
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="is-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setFailedMenuOpen(false);
+                      onDelete(message.id);
+                    }}
+                  >
+                    <Trash2 size={13} />
+                    Удалить
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          <MessageContent
-            content={message.content}
-            attachments={message.attachments}
-            hasQuotedMessage={Boolean(quotedMessage)}
-            isMine={isMine}
-            onVoiceListen={onVoiceListen}
-          />
-
-          <div className="message-meta">
-            {/* Telegram's media-unread dot: an incoming voice note nobody has
-                listened to yet. It disappears on the first playback. */}
-            {voiceUnheard && (
-              <span
-                className="message-unheard-dot"
-                role="img"
-                aria-label={isMine ? "Собеседник ещё не прослушал" : "Не прослушано"}
-              />
-            )}
-            <span className="message-time">{formatTime(message.sent_at)}</span>
-            {message.is_edited && <span className="edited-label">изм.</span>}
-            {isMine && (
-              <span className="message-status">{getStatusIcon()}</span>
-            )}
-          </div>
+          <div className="message-meta">{metaChildren}</div>
 
           {floatingEmoji && (
             <span className="reaction-float" key={floatingEmoji} aria-hidden="true">
@@ -743,6 +809,7 @@ export const MessageBubble = memo(function MessageBubble({
           hostEl={hostBubbleEl}
           portalEl={chatPanelEl}
           isMine={isMine}
+          closing={menuClosing}
           topSlot={onToggleReaction ? (
             <ReactionBar
               chips={message.reactions ?? []}
@@ -753,7 +820,7 @@ export const MessageBubble = memo(function MessageBubble({
         >
           <div
             ref={actionPanelRef}
-            className="msg-action-panel"
+            className={`msg-action-panel${menuClosing ? " is-closing" : ""}`}
             role="menu"
             tabIndex={-1}
             onDoubleClick={(e) => e.stopPropagation()}
@@ -761,32 +828,42 @@ export const MessageBubble = memo(function MessageBubble({
             // menu item, not on the menu itself).
             onClickCapture={() => hapticTick(8)}
           >
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onReply(message); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onReply(message); }}>
               <Reply size={15} /><span>Ответить</span>
             </button>
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onCopy(message.content); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onCopy(message.content); }}>
               <Copy size={15} /><span>Копировать</span>
             </button>
             <div className="msg-action-sep" role="separator" />
             {isMine && !message.is_deleted && (
               <>
-                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onEdit(message.id, message.content); }}>
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onEdit(message.id, message.content); }}>
                   <Pencil size={15} /><span>Редактировать</span>
                 </button>
-                <button type="button" role="menuitem" className="msg-action-item msg-action-item-danger" onClick={() => { dismissMenu(); onDelete(message.id); }}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="msg-action-item msg-action-item-danger"
+                  onClick={() => {
+                    // The panel leaves first, then the question appears — the
+                    // confirm never pops on top of a menu that is still there.
+                    dismissMenu({ animate: true });
+                    window.setTimeout(() => setConfirmDeleteOpen(true), prefersReducedMotion() ? 0 : MENU_EXIT_MS);
+                  }}
+                >
                   <Trash2 size={15} /><span>Удалить</span>
                 </button>
                 <div className="msg-action-sep" role="separator" />
               </>
             )}
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onTogglePin(message.id); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onTogglePin(message.id); }}>
               {isPinned ? <PinOff size={15} /> : <Pin size={15} />}
               <span>{isPinned ? "Открепить" : "Закрепить"}</span>
             </button>
             {notesControls && (
               <>
                 <div className="msg-action-sep" role="separator" />
-                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onNotesOrganize?.(message); }}>
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onNotesOrganize?.(message); }}>
                   <Tags size={15} /><span>Папка и теги…</span>
                 </button>
               </>
@@ -805,6 +882,38 @@ export const MessageBubble = memo(function MessageBubble({
         </MessageActionOverlay>,
         chatPanelEl,
       )}
+
+      {/* One line, two buttons — nothing else. Focus starts on «Отмена»: the
+          action that erases must be chosen on purpose. `aria-describedby` is
+          cleared because the question is the whole content (Radix would
+          otherwise warn about a missing description). */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent
+          aria-describedby={undefined}
+          className="z-[150] w-auto min-w-[240px] max-w-[320px] gap-4 rounded-2xl p-5"
+          // The message starts crumbling the moment «Удалить» is pressed, so the
+          // dialog must not sit on top of it: the surface is gone in a blink
+          // (1ms) and the veil is light, enough to focus without drowning the
+          // animation behind it.
+          overlayClassName="z-[149] bg-black/20"
+          style={{ animationDuration: "1ms" }}
+        >
+          <AlertDialogTitle className="text-center text-[15px] font-semibold leading-5">
+            Вы хотите удалить это сообщение?
+          </AlertDialogTitle>
+          <AlertDialogFooter className="flex-row justify-center gap-2 sm:space-x-0">
+            <AlertDialogAction
+              className="rounded-full bg-destructive px-4 text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDelete(message.id)}
+            >
+              Удалить
+            </AlertDialogAction>
+            <AlertDialogCancel className="mt-0 rounded-full">
+              Отмена
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });
