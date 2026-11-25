@@ -25,11 +25,14 @@ interface MessageActionOverlayProps {
   isMine: boolean;
   /** Rendered above the floated message (the reaction bar). Real UI, unlike the clone. */
   topSlot?: ReactNode;
+  /** The panel is playing its exit: land the group back on the real bubble so
+   *  the hand-off at unmount is invisible, and let CSS fade the panel out. */
+  closing?: boolean;
   /** The action panel JSX; rendered below the floated message. */
   children: ReactNode;
 }
 
-export function MessageActionOverlay({ hostEl, portalEl, isMine, topSlot, children }: MessageActionOverlayProps) {
+export function MessageActionOverlay({ hostEl, portalEl, isMine, topSlot, closing, children }: MessageActionOverlayProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const cloneHostRef = useRef<HTMLDivElement | null>(null);
   // Upward shift (px, ≤ 0). Applied as translateY with a CSS transition, so
@@ -95,10 +98,18 @@ export function MessageActionOverlay({ hostEl, portalEl, isMine, topSlot, childr
     };
   }, [hostEl, portalEl, isMine]);
 
+  // While closing, the whole group returns to the bubble's true position at the
+  // same tempo as the panel's exit (the CSS shortens the transition): the copy
+  // lands exactly on the message it covers, so unmounting it changes nothing.
+  useLayoutEffect(() => {
+    if (!closing) return;
+    setLift(0);
+  }, [closing]);
+
   return createPortal(
     <div
       ref={wrapperRef}
-      className={`msg-action-lift${isMine ? " is-mine" : ""}`}
+      className={`msg-action-lift${isMine ? " is-mine" : ""}${closing ? " is-closing" : ""}`}
       style={{ transform: `translateY(${lift}px)` }}
     >
       {topSlot}

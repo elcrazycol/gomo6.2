@@ -3,12 +3,20 @@ import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
 import { runDeleteExit } from "./core/deleteAnimation";
+
+/** The action panel's exit, mirrored in `msg-panel-out` (messenger.css). */
+const MENU_EXIT_MS = 160;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -154,6 +162,10 @@ export const MessageBubble = memo(function MessageBubble({
   // handlers (which fire outside React's synthetic pipeline) never race a
   // stale closure.
   const [menuOpen, setMenuOpen] = useState(false);
+  // The panel is still mounted while it glides down after an action is chosen
+  // (it leaves the way it arrived instead of blinking out).
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuCloseTimerRef = useRef<number | null>(null);
   const menuOpenRef = useRef(false);
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
   // Whether the composer's editing surface was engaged when the panel opened
@@ -179,7 +191,21 @@ export const MessageBubble = memo(function MessageBubble({
     return activeInComposer || sheetOpen;
   };
 
+  const finishMenuClose = useCallback(() => {
+    if (menuCloseTimerRef.current !== null) {
+      clearTimeout(menuCloseTimerRef.current);
+      menuCloseTimerRef.current = null;
+    }
+    setMenuOpen(false);
+    setMenuClosing(false);
+  }, []);
+
   const openMenu = useCallback(() => {
+    if (menuCloseTimerRef.current !== null) {
+      clearTimeout(menuCloseTimerRef.current);
+      menuCloseTimerRef.current = null;
+    }
+    setMenuClosing(false);
     composerEngagedRef.current = hasComposerEngaged(
       rowInnerRef.current?.closest(".chat-panel") ?? null,
     );
@@ -187,12 +213,22 @@ export const MessageBubble = memo(function MessageBubble({
     setMenuOpen(true);
   }, []);
 
-  const dismissMenu = useCallback(() => {
+  /**
+   * `animate` is for an action chosen IN the panel: the panel glides down the
+   * way it came in and is unmounted when the exit ends. Outside taps, Escape
+   * and scroll stay instant — the reader is already looking elsewhere.
+   */
+  const dismissMenu = useCallback((options?: { animate?: boolean }) => {
     if (!menuOpenRef.current) return;
     menuOpenRef.current = false;
     clearLongPress();
-    setMenuOpen(false);
-  }, [clearLongPress]);
+    if (!options?.animate || prefersReducedMotion()) {
+      finishMenuClose();
+      return;
+    }
+    setMenuClosing(true);
+    menuCloseTimerRef.current = window.setTimeout(finishMenuClose, MENU_EXIT_MS);
+  }, [clearLongPress, finishMenuClose]);
 
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
@@ -473,6 +509,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   useEffect(() => () => {
     if (floatTimerRef.current) clearTimeout(floatTimerRef.current);
+    if (menuCloseTimerRef.current !== null) clearTimeout(menuCloseTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -772,6 +809,7 @@ export const MessageBubble = memo(function MessageBubble({
           hostEl={hostBubbleEl}
           portalEl={chatPanelEl}
           isMine={isMine}
+          closing={menuClosing}
           topSlot={onToggleReaction ? (
             <ReactionBar
               chips={message.reactions ?? []}
@@ -782,7 +820,7 @@ export const MessageBubble = memo(function MessageBubble({
         >
           <div
             ref={actionPanelRef}
-            className="msg-action-panel"
+            className={`msg-action-panel${menuClosing ? " is-closing" : ""}`}
             role="menu"
             tabIndex={-1}
             onDoubleClick={(e) => e.stopPropagation()}
@@ -790,32 +828,42 @@ export const MessageBubble = memo(function MessageBubble({
             // menu item, not on the menu itself).
             onClickCapture={() => hapticTick(8)}
           >
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onReply(message); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onReply(message); }}>
               <Reply size={15} /><span>Ответить</span>
             </button>
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onCopy(message.content); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onCopy(message.content); }}>
               <Copy size={15} /><span>Копировать</span>
             </button>
             <div className="msg-action-sep" role="separator" />
             {isMine && !message.is_deleted && (
               <>
-                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onEdit(message.id, message.content); }}>
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onEdit(message.id, message.content); }}>
                   <Pencil size={15} /><span>Редактировать</span>
                 </button>
-                <button type="button" role="menuitem" className="msg-action-item msg-action-item-danger" onClick={() => { dismissMenu(); setConfirmDeleteOpen(true); }}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="msg-action-item msg-action-item-danger"
+                  onClick={() => {
+                    // The panel leaves first, then the question appears — the
+                    // confirm never pops on top of a menu that is still there.
+                    dismissMenu({ animate: true });
+                    window.setTimeout(() => setConfirmDeleteOpen(true), prefersReducedMotion() ? 0 : MENU_EXIT_MS);
+                  }}
+                >
                   <Trash2 size={15} /><span>Удалить</span>
                 </button>
                 <div className="msg-action-sep" role="separator" />
               </>
             )}
-            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onTogglePin(message.id); }}>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onTogglePin(message.id); }}>
               {isPinned ? <PinOff size={15} /> : <Pin size={15} />}
               <span>{isPinned ? "Открепить" : "Закрепить"}</span>
             </button>
             {notesControls && (
               <>
                 <div className="msg-action-sep" role="separator" />
-                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onNotesOrganize?.(message); }}>
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu({ animate: true }); onNotesOrganize?.(message); }}>
                   <Tags size={15} /><span>Папка и теги…</span>
                 </button>
               </>
@@ -835,12 +883,14 @@ export const MessageBubble = memo(function MessageBubble({
         chatPanelEl,
       )}
 
-      {/* One compact confirmation, no checkbox theatre: this is a 1:1 chat, so a
-          delete is always for both sides. Focus starts on «Отмена» — the action
-          that erases must be chosen on purpose. */}
+      {/* One line, two buttons — nothing else. Focus starts on «Отмена»: the
+          action that erases must be chosen on purpose. `aria-describedby` is
+          cleared because the question is the whole content (Radix would
+          otherwise warn about a missing description). */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent
-          className="z-[150] gap-4 rounded-2xl p-5 sm:max-w-[360px]"
+          aria-describedby={undefined}
+          className="z-[150] w-auto min-w-[240px] max-w-[320px] gap-4 rounded-2xl p-5"
           // The message starts crumbling the moment «Удалить» is pressed, so the
           // dialog must not sit on top of it: the surface is gone in a blink
           // (1ms) and the veil is light, enough to focus without drowning the
@@ -848,29 +898,19 @@ export const MessageBubble = memo(function MessageBubble({
           overlayClassName="z-[149] bg-black/20"
           style={{ animationDuration: "1ms" }}
         >
-          <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <Trash2 className="h-5 w-5" />
-            </span>
-            <div className="min-w-0 flex-1 pt-0.5">
-              <AlertDialogTitle className="text-[15px] font-semibold">
-                Удалить сообщение?
-              </AlertDialogTitle>
-              <AlertDialogDescription className="mt-1 text-[13px] leading-5">
-                Оно исчезнет у вас и у собеседника. Восстановить не получится.
-              </AlertDialogDescription>
-            </div>
-          </div>
-          <AlertDialogFooter className="flex-row justify-end gap-2">
-            <AlertDialogCancel className="mt-0 rounded-full">
-              Отмена
-            </AlertDialogCancel>
+          <AlertDialogTitle className="text-center text-[15px] font-semibold leading-5">
+            Вы хотите удалить это сообщение?
+          </AlertDialogTitle>
+          <AlertDialogFooter className="flex-row justify-center gap-2 sm:space-x-0">
             <AlertDialogAction
               className="rounded-full bg-destructive px-4 text-destructive-foreground hover:bg-destructive/90"
               onClick={() => onDelete(message.id)}
             >
               Удалить
             </AlertDialogAction>
+            <AlertDialogCancel className="mt-0 rounded-full">
+              Отмена
+            </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

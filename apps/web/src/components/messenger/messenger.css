@@ -2726,6 +2726,36 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   to { opacity: 1; transform: none; }
 }
 
+/* The exit mirrors the entrance: the panel glides DOWN and fades while the
+   floated copy returns to the message's real slot, so nothing blinks out when
+   an action is chosen. */
+@keyframes msg-panel-out {
+  to { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
+
+.msg-action-panel.is-closing,
+.msg-reaction-bar.is-closing {
+  pointer-events: none;
+  animation: msg-panel-out 0.16s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+}
+
+/* The group lands on the bubble at the panel's tempo (the open lift takes
+   0.38s; the exit must not outlast the panel). */
+.msg-action-lift.is-closing {
+  transition-duration: 0.16s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-action-panel.is-closing,
+  .msg-reaction-bar.is-closing {
+    animation-duration: 1ms;
+  }
+
+  .msg-action-lift.is-closing {
+    transition-duration: 1ms;
+  }
+}
+
 .msg-action-item {
   display: flex;
   align-items: center;

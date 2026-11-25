@@ -769,6 +769,31 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("Сообщение удалено")).not.toBeInTheDocument();
   });
 
+  it("glides the panel down when an action is chosen, then asks", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+
+    // Not a hard cut: the panel is still mounted, flagged as leaving, and the
+    // floated group is landing back on the message.
+    const leaving = document.querySelector(".msg-action-panel.is-closing");
+    expect(leaving).not.toBeNull();
+    expect(document.querySelector(".msg-action-lift.is-closing")).not.toBeNull();
+    expect(screen.queryByText("Вы хотите удалить это сообщение?")).not.toBeInTheDocument();
+
+    // The question appears once the panel is gone.
+    expect(await screen.findByText("Вы хотите удалить это сообщение?", undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(document.querySelector(".msg-action-panel")).toBeNull();
+  });
+
   it("asks before deleting: the panel opens a compact confirmation", async () => {
     const onDelete = vi.fn();
     renderInChat(
@@ -782,8 +807,9 @@ describe("MessageBubble", () => {
     fireEvent.contextMenu(screen.getByText("Hello, world!"));
     fireEvent.click(await screen.findByText("Удалить"));
 
-    expect(await screen.findByText("Удалить сообщение?")).toBeInTheDocument();
-    expect(screen.getByText(/исчезнет у вас и у собеседника/i)).toBeInTheDocument();
+    // One line and two buttons: no icon, no essay.
+    expect(await screen.findByText("Вы хотите удалить это сообщение?")).toBeInTheDocument();
+    expect(screen.queryByText(/исчезнет у вас и у собеседника/i)).not.toBeInTheDocument();
     // Nothing is deleted until the reader confirms.
     expect(onDelete).not.toHaveBeenCalled();
   });
@@ -802,7 +828,7 @@ describe("MessageBubble", () => {
     fireEvent.click(await screen.findByText("Удалить"));
     fireEvent.click(await screen.findByRole("button", { name: "Отмена" }));
 
-    await waitFor(() => expect(screen.queryByText("Удалить сообщение?")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Вы хотите удалить это сообщение?")).not.toBeInTheDocument());
     expect(onDelete).not.toHaveBeenCalled();
   });
 
