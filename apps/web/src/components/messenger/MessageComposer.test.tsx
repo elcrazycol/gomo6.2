@@ -1506,6 +1506,32 @@ describe("MessageComposer", () => {
   });
 
   describe("reply banner", () => {
+    it("caps a long reply preview to one ellipsized line with the author prefix", () => {
+      const long = "Не удалось загрузить страницу. Возможно, приложение обновилось или соединение прервалось. ".repeat(4);
+      const { container } = render(
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+          replyToMessage={{ id: "m1", content: long, is_deleted: false } as any}
+          replySenderLabel="Собеседник"
+          onCancelReply={vi.fn()}
+        />,
+      );
+      const banner = container.querySelector(".composer-reply-banner") as HTMLElement;
+      expect(banner).toBeInTheDocument();
+      // The author and the preview are separate flex children: the label is a
+      // capped prefix, the preview carries the ellipsis (`min-width: 0` — a
+      // nowrap flex child without it widened the whole composer).
+      expect(banner.querySelector(".reply-label")).toHaveTextContent("Собеседник");
+      const preview = banner.querySelector(".reply-text") as HTMLElement;
+      expect(preview.textContent!.length).toBeLessThanOrEqual(121);
+      expect(preview.textContent!.endsWith("…")).toBe(true);
+      expect(banner.querySelector(".composer-reply-cancel")).toBeInTheDocument();
+    });
+
     it("dismissing the reply keeps the composer focused (the X must not steal focus)", () => {
       const onCancelReply = vi.fn();
       render(

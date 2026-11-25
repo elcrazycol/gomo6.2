@@ -121,6 +121,7 @@ main.is-messenger-page {
 
 .chat-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-width: 0;
   min-height: 0;
@@ -1455,6 +1456,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   cursor: default;
   min-width: 0;
   max-width: 100%;
+  /* Nothing inside may paint past the bubble edge: a long author name used to
+     spill out and squeeze the quoted text to zero width. */
+  overflow: hidden;
 }
 
 .quoted-message.is-clickable {
@@ -1479,7 +1483,13 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   font-weight: 600;
   color: oklch(var(--primary));
   white-space: nowrap;
-  flex-shrink: 0;
+  /* Shrinkable (a percentage cap is unstable here: the bubble is shrink-to-fit,
+     so 40% of a small bubble clipped even «Собеседник»). `min-width: 0` keeps a
+     long display name inside the quote, and the preview absorbs the rest. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .quoted-text {
@@ -2785,11 +2795,28 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   border-left: 3px solid oklch(var(--primary));
   border-radius: 8px;
   font-size: 13px;
+  /* A flex item's automatic minimum size would let a long reply preview widen
+     the whole composer past the viewport and shove the ✕ off-screen. Every
+     shrinkable child also needs `min-width: 0` — see below. */
+  min-width: 0;
+  max-width: 100%;
   animation: fade-in-scale 0.15s ease;
 }
-.composer-reply-banner .reply-label { font-weight: 600; color: oklch(var(--primary)); }
-.composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(var(--foreground) / 0.7); }
-.composer-reply-cancel { background: none; border: none; cursor: pointer; color: oklch(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; outline: none; }
+.composer-reply-banner .reply-label {
+  font-weight: 600;
+  color: oklch(var(--primary));
+  /* The author is a capped prefix that keeps priority over the preview: cap it
+     (very long display names) and ellipsize, so the preview always keeps room
+     for a few words. */
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-reply-banner .reply-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(var(--foreground) / 0.7); }
+.composer-reply-cancel { background: none; border: none; cursor: pointer; color: oklch(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; flex-shrink: 0; outline: none; }
 .composer-reply-cancel:hover { background: oklch(var(--foreground) / 0.1); color: oklch(var(--foreground)); }
 .composer-reply-cancel:focus-visible { outline: 2px solid oklch(var(--ring)); outline-offset: 1px; }
 
@@ -4939,6 +4966,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 .chat-view-dnd-root {
   position: relative;
   display: grid;
+  /* An explicit minmax(0, 1fr) column is load-bearing: with an implicit `auto`
+     column the track sizes to its widest CONTENT (a long nowrap reply preview
+     was enough), so the whole chat — header, list and composer — grew past the
+     panel and got clipped instead of ellipsizing. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   /* Span every row of .chat-panel (auto 1fr auto) so the wrapper always fills
      the panel height — a plain height:100% would resolve against an auto-sized
