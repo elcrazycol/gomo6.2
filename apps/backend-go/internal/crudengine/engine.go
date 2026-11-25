@@ -292,14 +292,14 @@ var blockedContentOwnerColumns = map[string][]string{
 // tableName belonging to users who blocked the caller. A guest (empty viewer)
 // gets no predicate: nobody can block an anonymous visitor. Returns the
 // predicate plus its argument, and the next placeholder index.
-func genericBlockedVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+func genericBlockedVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}) {
 	columns, ok := blockedContentOwnerColumns[tableName]
 	if !ok {
-		return "", nil, argIndex
+		return "", nil
 	}
 	viewerID := httpx.AuthenticatedUserID(c)
 	if viewerID == "" {
-		return "", nil, argIndex
+		return "", nil
 	}
 	ph := "$" + strconv.Itoa(argIndex)
 	clauses := make([]string, 0, len(columns))
@@ -308,7 +308,7 @@ func genericBlockedVisibility(c *gin.Context, tableName string, argIndex int) (s
 		// the reference ambiguous.
 		clauses = append(clauses, "NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = "+tableName+"."+col+" AND b.blocked_id = "+ph+")")
 	}
-	return "(" + strings.Join(clauses, " AND ") + ")", []interface{}{viewerID}, argIndex + 1
+	return "(" + strings.Join(clauses, " AND ") + ")", []interface{}{viewerID}
 }
 
 // extractRecordID extracts the record ID from a URL path like /api/v1/table_name/abc-123.

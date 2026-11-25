@@ -662,12 +662,6 @@ func decryptChatMessage(payload interface{}, message Message, messageBytes []byt
 	return messageBytes
 }
 
-// broadcastChatEvent publishes a chat event to the conversation room and to
-// any personal messenger_user_<id> rooms listed in recipient_ids.
-func (h *Hub) broadcastChatEvent(payload interface{}, messageBytes []byte, subscribeBots bool) {
-	h.broadcastChatEventWithRecipients(payload, extractRecipientIDs(payload), messageBytes, subscribeBots)
-}
-
 func (h *Hub) broadcastChatEventWithRecipients(payload interface{}, recipientIDs []string, messageBytes []byte, subscribeBots bool) {
 	var rooms []string
 	conversationID := extractRoomID(payload, "conversation_id")
