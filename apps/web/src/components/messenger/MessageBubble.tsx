@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
+import { runDeleteExit } from "./core/deleteAnimation";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -485,6 +486,18 @@ export const MessageBubble = memo(function MessageBubble({
     return () => document.removeEventListener("mousedown", close);
   }, [failedMenuOpen]);
 
+  // The delete exit: the bubble crumbles and the row collapses while the store
+  // holds it in the list (see `core/deleteAnimation`). The row is dropped by the
+  // store when the exit ends, so there is nothing to clean up here.
+  const deleting = Boolean(message.deleting);
+  useEffect(() => {
+    if (!deleting) return;
+    const bubble = messageBubbleRef.current;
+    const row = bubble?.closest<HTMLElement>(".message-item");
+    if (!bubble || !row) return;
+    runDeleteExit({ row, bubble, seed: message.id });
+  }, [deleting, message.id]);
+
   // The long-press panel applies a reaction and closes: the chip under the
   // message is the result, so the panel has nothing left to say.
   const handlePickReaction = useCallback((emoji: string) => {
@@ -558,7 +571,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
+      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}${deleting ? " is-deleting" : ""}`}
       onDoubleClick={handleRowDoubleClick}
       onPointerUp={handleRowPointerUp}
     >
@@ -828,7 +841,12 @@ export const MessageBubble = memo(function MessageBubble({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent
           className="z-[150] gap-4 rounded-2xl p-5 sm:max-w-[360px]"
-          overlayClassName="z-[149]"
+          // The message starts crumbling the moment «Удалить» is pressed, so the
+          // dialog must not sit on top of it: the surface is gone in a blink
+          // (1ms) and the veil is light, enough to focus without drowning the
+          // animation behind it.
+          overlayClassName="z-[149] bg-black/20"
+          style={{ animationDuration: "1ms" }}
         >
           <div className="flex items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">

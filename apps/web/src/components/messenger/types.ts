@@ -117,6 +117,13 @@ export type MessageView = {
   notesTags?: string[];
   // Client-side state
   localStatus?: "sending" | "sent" | "failed";
+  /**
+   * The delete exit is playing: the row is still mounted (so the bubble can
+   * crumble and the list can close the gap smoothly) but it is already gone
+   * from every other read — the store drops it when the animation ends.
+   * See `core/deleteAnimation.ts`.
+   */
+  deleting?: boolean;
 };
 
 export type Attachment = {

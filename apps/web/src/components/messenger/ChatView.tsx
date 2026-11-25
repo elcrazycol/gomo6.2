@@ -258,7 +258,7 @@ export const ChatView = memo(function ChatView({
   useEffect(() => {
     if (!me?.id || !conversation || messages.length === 0) return;
     const lastOther = [...messages].reverse().find(
-      (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.localStatus,
+      (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.deleting && !m.localStatus,
     );
     if (lastOther) {
       queueMarkDelivered(conversation.id, lastOther.id, lastOther.sent_at);

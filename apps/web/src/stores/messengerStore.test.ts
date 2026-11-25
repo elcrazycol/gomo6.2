@@ -723,7 +723,7 @@ describe("messengerStore", () => {
       expect(conversation.last_message_sender_id).toBeNull();
     });
 
-    it("removes the message immediately and only then confirms with the server", async () => {
+    it("starts the exit at once and drops the row when it ends", async () => {
       useMessengerStore.setState({
         selectedConversationId: "conv-1",
         messages: [mockMsg({ id: "msg-1", content: "Hello" })],
@@ -735,15 +735,19 @@ describe("messengerStore", () => {
 
       const pending = useMessengerStore.getState().deleteMessage("msg-1");
 
-      // Gone in the same frame — the reader never waits for the round trip.
-      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      // The row stays mounted for the animation, but it is already leaving…
+      const during = useMessengerStore.getState().messages;
+      expect(during).toHaveLength(1);
+      expect(during[0].deleting).toBe(true);
+      // …and the request does not wait for it.
       expect(messengerApi.deleteMessage).toHaveBeenCalledWith("conv-1", "msg-1");
 
       release({ deleted: true });
       await pending;
-
-      expect(useMessengerStore.getState().messages).toHaveLength(0);
       expect(isMessageDeleted("msg-1")).toBe(true);
+
+      // …until the exit ends and the store removes it for good.
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
     });
 
     it("puts the message back when the delete fails", async () => {
@@ -755,8 +759,14 @@ describe("messengerStore", () => {
 
       await useMessengerStore.getState().deleteMessage("msg-1");
 
+      // The exit plays out, then the row is re-created (a fresh node, so no
+      // half-finished exit styles can hide it).
+      await vi.waitFor(() => {
+        const messages = useMessengerStore.getState().messages;
+        expect(messages).toHaveLength(1);
+        expect(messages[0].deleting).toBeFalsy();
+      }, { timeout: 2000 });
       const messages = useMessengerStore.getState().messages;
-      expect(messages).toHaveLength(1);
       expect(messages[0].id).toBe("msg-1");
       expect(messages[0].content).toBe("Hello");
       // A failed delete is not remembered as a deletion.
@@ -796,7 +806,7 @@ describe("messengerStore", () => {
   });
 
   describe("removeMessage (realtime deletion)", () => {
-    it("drops the message, its pin and its list line", () => {
+    it("plays the same exit as a local delete, then drops the row", async () => {
       useMessengerStore.setState({
         selectedConversationId: "conv-1",
         conversations: [mockConv({ id: "conv-1", last_message_preview: "исчезнет" })],
@@ -810,21 +820,42 @@ describe("messengerStore", () => {
       useMessengerStore.getState().removeMessage("m1");
 
       const state = useMessengerStore.getState();
-      expect(state.messages.map((m) => m.id)).toEqual(["m0"]);
+      // The peer's message crumbles here too: the row is still mounted, flagged.
+      expect(state.messages.map((m) => m.id)).toEqual(["m0", "m1"]);
+      expect(state.messages[1].deleting).toBe(true);
       expect(state.pinnedNotes).toHaveLength(0);
       expect(state.conversations[0].last_message_preview).toBe("первое");
-      // Journaled: a cache read (warm first frame, offline open) cannot bring it
-      // back.
+      // Journaled at once: a cache read (warm first frame, offline open) cannot
+      // bring it back while the exit plays.
       expect(isMessageDeleted("m1")).toBe(true);
+
+      await vi.waitFor(() =>
+        expect(useMessengerStore.getState().messages.map((m) => m.id)).toEqual(["m0"]),
+      );
     });
 
-    it("never resurrects the message from a late echo", () => {
+    it("never resurrects the message from a late echo", async () => {
       useMessengerStore.setState({ selectedConversationId: "conv-1", messages: [] });
 
       useMessengerStore.getState().removeMessage("m1");
       useMessengerStore.getState().addMessage(mockMsg({ id: "m1", content: "исчезнет" }));
 
       expect(useMessengerStore.getState().messages).toHaveLength(0);
+    });
+
+    it("does not restart the exit of a message the reader is already deleting", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        messages: [mockMsg({ id: "m1" })],
+      });
+
+      await useMessengerStore.getState().deleteMessage("m1");
+      // The server's echo of the same delete must not push the row back.
+      useMessengerStore.getState().removeMessage("m1");
+
+      expect(useMessengerStore.getState().messages).toHaveLength(1);
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
     });
   });
 
@@ -1532,14 +1563,15 @@ describe("messengerStore", () => {
       expect(msg.is_edited).toBe(true);
     });
 
-    it("removeMessage drops the message for good (no tombstone)", () => {
-      useMessengerStore.setState({ messages: [mockMsg({ id: "msg-1" })] });
+    it("removeMessage drops the message for good (no tombstone)", async () => {
+      useMessengerStore.setState({ selectedConversationId: "conv-1", messages: [mockMsg({ id: "msg-1" })] });
 
       useMessengerStore.getState().removeMessage("msg-1");
 
-      expect(useMessengerStore.getState().messages).toHaveLength(0);
-      // The id is journaled, so no cache read can bring the bubble back.
+      // The id is journaled immediately, so no cache read can bring the bubble
+      // back; the row itself leaves when its exit ends.
       expect(isMessageDeleted("msg-1")).toBe(true);
+      await vi.waitFor(() => expect(useMessengerStore.getState().messages).toHaveLength(0));
     });
 
     it("setTyping adds and removes typing users", () => {

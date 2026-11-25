@@ -393,6 +393,13 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
   + the device-local journal `gomo6:deleted-messages:v1`, which also filters the LRU
   cache and IndexedDB). A new read path that shows messages must filter
   `is_deleted`/`isMessageDeleted()` too, and no UI may show «Сообщение удалено».
+  The row is **not** removed synchronously: the store flags it `deleting` (every other
+  surface already treats it as gone) and drops it after `DELETE_EXIT_MS` — the bubble
+  crumbles and its row collapses, so the messages above slide down and those below
+  stay put (`components/messenger/core/deleteAnimation.ts`: pieces outside the fading
+  row, one `height` transition, scroll-witness compensation, reduced-motion = instant).
+  Any new UI path that deletes must keep that handshake (`deleteMessage` /
+  `removeMessage` → `finalizeDeletedMessage`), never splice the row out itself.
 - **Channel switching**: `channelSlug` must be in the `loadBoard` effect deps in
   `apps/web/src/pages/Board.tsx`. Missing it = stale threads on channel nav.
 - **Releases**: do NOT bump `VERSION`, edit `CHANGELOG.md` or tag by hand — release-please

@@ -24,6 +24,7 @@ import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
 import { attachmentPreviewText } from "@/components/messenger/attachmentPreview";
 import { appendMessages, mergeMessages, prependOlder, sortBySentAt } from "@/components/messenger/core/messageModel";
+import { deleteExitDuration } from "@/components/messenger/core/deleteAnimation";
 import {
   deleteOutbox,
   isPermanentSendError,
@@ -371,6 +372,60 @@ async function discardSentMessage(conversationId: string, messageId: string, out
   } catch {
     // A failed cleanup only leaves a row this device never shows.
   }
+}
+
+// ─── Delete exit (the row stays mounted while it crumbles) ──────────────────
+// The store owns the removal timing: the bubble must be able to play its exit
+// (see components/messenger/core/deleteAnimation.ts) before the row is dropped.
+// One timer per message, keyed by id, cleared on failure and on teardown.
+const deleteExits = new Map<string, { conversationId: string; timer: number }>();
+
+function scheduleDeleteFinalize(conversationId: string, messageId: string): void {
+  const existing = deleteExits.get(messageId);
+  if (existing) clearTimeout(existing.timer);
+  const delay = deleteExitDuration();
+  const timer = window.setTimeout(() => {
+    deleteExits.delete(messageId);
+    useMessengerStore.getState().finalizeDeletedMessage(conversationId, messageId);
+  }, delay);
+  deleteExits.set(messageId, { conversationId, timer });
+}
+
+function cancelDeleteFinalize(messageId: string): void {
+  const existing = deleteExits.get(messageId);
+  if (!existing) return;
+  clearTimeout(existing.timer);
+  deleteExits.delete(messageId);
+}
+
+/**
+ * Marks a message as exiting: it stays in `messages` for the animation, but
+ * every other surface (chat-list line, pin, cache) already treats it as gone.
+ */
+function markMessageDeleting(conversationId: string, messageId: string): void {
+  useMessengerStore.setState((s) => {
+    if (s.selectedConversationId !== conversationId) return s;
+    const target = s.messages.find((m) => m.id === messageId);
+    if (!target || target.deleting) return s;
+    const messages = s.messages.map((m) => (m.id === messageId ? { ...m, deleting: true } : m));
+    const survivors = messages.filter((m) => m.id !== messageId);
+    // The cache is written from the survivors: a reload must never replay the
+    // exit of a message the server no longer has.
+    cacheCurrentMessages(s.me?.id ?? null, conversationId, survivors);
+    return {
+      messages,
+      pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              ...previewAfterRemoval(survivors),
+              pinned_message_id: c.pinned_message_id === messageId ? null : c.pinned_message_id,
+            }
+          : c,
+      ),
+    };
+  });
 }
 
 
@@ -742,6 +797,9 @@ export function  destroyMessenger(): void {
   latestEventIds.clear();
   localReadThrough.clear();
   pendingOlderPages.clear();
+  // A pending exit belongs to a row that is about to be unmounted with the rest.
+  for (const { timer } of deleteExits.values()) clearTimeout(timer);
+  deleteExits.clear();
   // Decrypted message arrays must never outlive the session.
   recentMessages.clear();
   prefetchAttempted.clear();
@@ -889,6 +947,8 @@ type MessengerStore = {
   flushOutbox: () => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  /** Drops a row whose delete exit has finished (see `core/deleteAnimation`). */
+  finalizeDeletedMessage: (conversationId: string, messageId: string) => void;
   markRead: (messageId: string) => Promise<void>;
   markDelivered: (messageId: string) => Promise<void>;
   createConversation: (userId: string) => Promise<string | null>;
@@ -1734,23 +1794,19 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
 
     const removed = get().messages.find((m) => m.id === messageId) ?? null;
+    // Already gone (a double tap, or another device was faster): nothing to
+    // animate and nothing to ask the server twice.
+    if (!removed || removed.deleting) return;
 
-    // Telegram-fast: the bubble, the chat-list line and the pinned strip go in
-    // the same frame, before the request leaves. The server stays authoritative
-    // (and its broadcast reaches the other devices) — the reader just never
-    // waits to watch the message leave.
+    const pinnedBefore = get().conversations.find((c) => c.id === conversationId)?.pinned_message_id ?? null;
+
+    // Telegram-fast, still graceful: the bubble starts crumbling in this frame
+    // and the row disappears when the exit ends (≈200ms), so the list closes the
+    // gap smoothly instead of jumping. The chat-list line and the pin go at
+    // once — the reader never waits for either.
     setNotePinnedLocally(conversationId, messageId, false);
-    set((s) => {
-      const messages = s.messages.filter((m) => m.id !== messageId);
-      cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
-      return {
-        messages,
-        pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
-        conversations: s.conversations.map((c) =>
-          c.id === conversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
-        ),
-      };
-    });
+    markMessageDeleting(conversationId, messageId);
+    scheduleDeleteFinalize(conversationId, messageId);
 
     try {
       await messengerApi.deleteMessage(conversationId, messageId);
@@ -1758,24 +1814,59 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // the message back (the journal would otherwise hide it forever).
       rememberDeletedMessage(messageId);
     } catch {
-      // A failed delete must never eat the message: put it back exactly where
-      // it was and say why. (If the realtime event already confirmed the delete
-      // — a lost response — the journal knows, and the message stays gone.)
-      if (get().selectedConversationId === conversationId && removed && !deletedJournal().has(messageId)) {
-        if (removed.notesPinned) setNotePinnedLocally(conversationId, messageId, true);
-        set((s) => {
-          const messages = sortBySentAt([...s.messages, removed]);
-          cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
-          return {
-            messages,
-            conversations: s.conversations.map((c) =>
-              c.id === conversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
-            ),
-          };
-        });
+      // A failed delete must never eat the message. The exit is already on
+      // screen, so the row is re-created after it finishes — resurrecting the
+      // same DOM node would keep the dead exit styles on it.
+      if (!deletedJournal().has(messageId)) {
+        const restore = () => {
+          if (get().selectedConversationId !== conversationId) return;
+          if (deletedJournal().has(messageId)) return;
+          const existing = get().messages.find((m) => m.id === messageId);
+          if (existing) {
+            // Another path already brought it back: only clear the flag.
+            set((s) => ({
+              messages: s.messages.map((m) => (m.id === messageId ? { ...m, deleting: false } : m)),
+            }));
+            return;
+          }
+          if (removed.notesPinned) setNotePinnedLocally(conversationId, messageId, true);
+          set((s) => {
+            const messages = sortBySentAt([...s.messages, removed]);
+            cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+            return {
+              messages,
+              conversations: s.conversations.map((c) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      ...previewAfterRemoval(messages),
+                      pinned_message_id: pinnedBefore === messageId ? messageId : c.pinned_message_id,
+                    }
+                  : c,
+              ),
+            };
+          });
+        };
+        if (deleteExits.has(messageId)) {
+          // Let the exit finish first (it owns the row's DOM).
+          window.setTimeout(restore, deleteExitDuration() + 60);
+        } else {
+          cancelDeleteFinalize(messageId);
+          restore();
+        }
       }
       set({ error: "Не удалось удалить сообщение" });
     }
+  },
+
+  /** The exit finished: the row leaves the list (and the cache) for good. */
+  finalizeDeletedMessage: (conversationId, messageId) => {
+    set((s) => {
+      if (!s.messages.some((m) => m.id === messageId)) return s;
+      const messages = s.messages.filter((m) => m.id !== messageId);
+      cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+      return { messages };
+    });
   },
 
   // ── Mark read ─────────────────────────────────────────────────────────
@@ -2410,25 +2501,22 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   removeMessage: (id) => {
     // A message deleted anywhere is deleted everywhere: the id is journaled so
-    // no local cache (LRU or IndexedDB) can paint it again, and the open chat
-    // loses the row in this frame.
+    // no local cache (LRU or IndexedDB) can paint it again.
     rememberDeletedMessage(id);
-    set((s) => {
-      const present = s.messages.some((m) => m.id === id);
-      const messages = present ? s.messages.filter((m) => m.id !== id) : s.messages;
-      if (present && s.selectedConversationId) {
-        cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
+    const target = get().messages.find((m) => m.id === id);
+    if (target && target.conversation_id === get().selectedConversationId) {
+      // The peer deleted it: the bubble breaks apart here too, then the row
+      // leaves. A local delete already owns the timer — never restart it.
+      if (!target.deleting) {
+        setNotePinnedLocally(target.conversation_id, id, false);
+        markMessageDeleting(target.conversation_id, id);
+        scheduleDeleteFinalize(target.conversation_id, id);
       }
-      return {
-        messages,
-        pinnedNotes: s.pinnedNotes.filter((m) => m.id !== id),
-        conversations: present
-          ? s.conversations.map((c) =>
-              c.id === s.selectedConversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
-            )
-          : s.conversations,
-      };
-    });
+      return;
+    }
+    // Not the open chat: the server's `preview_changed` refresh owns the list
+    // line; only the pinned strip needs an immediate answer.
+    set((s) => ({ pinnedNotes: s.pinnedNotes.filter((m) => m.id !== id) }));
   },
 
   setTyping: (userId, username, isTyping) => {

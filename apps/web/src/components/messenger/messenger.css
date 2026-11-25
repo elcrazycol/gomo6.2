@@ -916,6 +916,56 @@ main.is-messenger-page {
   animation: message-flash 1.4s ease-out;
 }
 
+/* ── Delete exit ──
+   The row keeps its place while the bubble crumbles; `core/deleteAnimation.ts`
+   collapses the row's height (the only layout-animating property) and the store
+   drops the row when the exit ends. The pieces live in `.delete-crumbs`, a layer
+   in the scroller (not in the fading row), and move with transform/opacity only
+   — no filters, no shadows, no clip-path, so a phone composites them. */
+.bubble-row.is-deleting {
+  pointer-events: none;
+}
+
+.delete-crumbs {
+  /* Layout/style containment: nine absolutely positioned pieces can never
+     trigger work outside their own box. */
+  contain: layout style;
+}
+
+.delete-crumb {
+  box-sizing: border-box;
+  /* Theme-tinted shards: a 4-6% bubble fill would be invisible against the chat,
+     and a hardcoded colour would break the other themes. */
+  border: 1px solid oklch(var(--primary) / 0.3);
+  background: oklch(var(--primary) / 0.16);
+  will-change: transform, opacity;
+  animation: delete-crumb-flight var(--crumb-ms, 240ms) cubic-bezier(0.25, 0.6, 0.4, 1) var(--crumb-delay, 0ms) both;
+}
+
+.delete-crumb[data-mine="0"] {
+  border-color: oklch(var(--foreground) / 0.14);
+  background: oklch(var(--foreground) / 0.07);
+}
+
+@keyframes delete-crumb-flight {
+  from {
+    opacity: 0.95;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(var(--crumb-dx, 0), var(--crumb-dy, 10px), 0) rotate(var(--crumb-rot, 0deg)) scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The store removes the row instantly in this mode; nothing to animate. */
+  .delete-crumbs {
+    display: none;
+  }
+}
+
 /* A message that just arrived, marked by the list's writer for exactly the rows
    appended since the previous commit (rows mounted by a window slide are not new
    messages and must not animate). One keyframe animation rather than Telegram's

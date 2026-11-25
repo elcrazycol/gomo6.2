@@ -747,6 +747,28 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
   });
 
+  it("plays the delete exit when the message is leaving", () => {
+    const { container } = render(
+      <div className="message-scroll">
+        <div className="message-list">
+          <div className="message-item message-row">
+            <MessageBubble
+              message={createMessage({ deleting: true })}
+              {...defaultProps}
+            />
+          </div>
+        </div>
+      </div>,
+    );
+    // The row is flagged (no hover/menu) and the exit owns it until the store
+    // removes it — the bubble never shows a tombstone in the meantime.
+    expect(container.querySelector(".bubble-row")?.className).toContain("is-deleting");
+    const row = container.querySelector<HTMLElement>(".message-item")!;
+    expect(row.dataset.exit).toBe("1");
+    expect(row.style.pointerEvents).toBe("none");
+    expect(screen.queryByText("Сообщение удалено")).not.toBeInTheDocument();
+  });
+
   it("asks before deleting: the panel opens a compact confirmation", async () => {
     const onDelete = vi.fn();
     renderInChat(
