@@ -795,9 +795,9 @@ main.is-messenger-page {
 }
 
 .message-list {
-  /* Side inset of every message row. Kept to a hairline: bubbles should reach
-     the edge, with just enough so a shadow/border is not clipped. */
-  --message-gutter: 2px;
+  /* Side inset of every message row — bubbles must not touch the panel edge
+     (a hairline made them read as clipped against the border). */
+  --message-gutter: 8px;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -4272,7 +4272,8 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   }
 
   .message-list {
-    --message-gutter: 2px;
+    /* Mobile is edge-to-edge, so the inset carries the whole breathing room. */
+    --message-gutter: 10px;
   }
 
   .chat-panel.is-empty .chat-empty-state {
